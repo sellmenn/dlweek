@@ -68979,5 +68979,159 @@
       "sanitation_water": 0.4,
       "medication": 0.15
     }
+  },
+  {
+    "image_path": "data_image/hurricane_harvey/13_9_2017/908117643160305664_0.jpg",
+    "caption": "He made it through Harvey, Irma: How a Texan is using social media to help Keys residents https://t.co/gaHfwvmVH5 https://t.co/Kp446SZmk4",
+    "labels": {
+      "infrastructure": 0.63,
+      "food": 0.12,
+      "shelter": 0.72,
+      "sanitation_water": 0.36,
+      "medication": 0.15
+    }
+  },
+  {
+    "image_path": "data_image/hurricane_harvey/14_9_2017/908118102587539456_0.jpg",
+    "caption": "Harvey Hit Your House: Should You Sell (Quickly) or Repair? https://t.co/tUem9QPmpB https://t.co/SRlPQqtB7v",
+    "labels": {
+      "infrastructure": 0.74,
+      "food": 0.0,
+      "shelter": 0.88,
+      "sanitation_water": 0.0,
+      "medication": 0.0
+    }
+  },
+  {
+    "image_path": "data_image/hurricane_harvey/14_9_2017/908118652498567168_0.jpg",
+    "caption": "Donate to the One America Appeal and help millions of Americans impacted by Harvey &amp; Irma #oneamericaappeal https://t.co/TiP2f5fn1k",
+    "labels": {
+      "infrastructure": 0.0,
+      "food": 0.0,
+      "shelter": 0.0,
+      "sanitation_water": 0.0,
+      "medication": 0.0
+    }
+  },
+  {
+    "image_path": "data_image/hurricane_harvey/14_9_2017/908119742715752449_0.png",
+    "caption": "Italian Club raises funds for Harvey Relief\u00c2 Fund https://t.co/PjUtN95nlr https://t.co/u5S3T9MiWs",
+    "labels": {
+      "infrastructure": 0.0,
+      "food": 0.0,
+      "shelter": 0.0,
+      "sanitation_water": 0.0,
+      "medication": 0.0
+    }
+  },
+  {
+    "image_path": "data_image/hurricane_harvey/14_9_2017/908119924228460546_0.jpg",
+    "caption": "Lake Tahoe tornado right now! https://t.co/IeUsw7gn4s",
+    "labels": {
+      "infrastructure": 0.5,
+      "food": 0.0,
+      "shelter": 0.0,
+      "sanitation_water": 0.0,
+      "medication": 0.0
+    }
+  },
+  {
+    "image_path": "data_image/hurricane_harvey/14_9_2017/908119924228460546_1.jpg",
+    "caption": "Lake Tahoe tornado right now! https://t.co/IeUsw7gn4s",
+    "labels": {
+      "infrastructure": 0.76,
+      "food": 0.12,
+      "shelter": 0.38,
+      "sanitation_water": 0.22,
+      "medication": 0.49
+    }
+  },
+  {
+    "image_path": "data_image/hurricane_harvey/14_9_2017/908120568695857152_0.jpg",
+    "caption": "Little barn didn\u2019t like the wind. #jnj @donateaphoto #HurricaneHarvey https://t.co/CGscmriLX7 https://t.co/sF8Vj1L3yQ",
+    "labels": {
+      "infrastructure": 0.12,
+      "food": 0.0,
+      "shelter": 0.35,
+      "sanitation_water": 0.1,
+      "medication": 0.0
+    }
+  },
+  {
+    "image_path": "data_image/hurricane_harvey/14_9_2017/908124692753506305_0.jpg",
+    "caption": "Homeowner warns of contractor scams after Harvey https://t.co/Qqms6dAdRH https://t.co/QGStkG4HEX",
+    "labels": {
+      "infrastructure": 0.69,
+      "food": 0.05,
+      "shelter": 0.83,
+      "sanitation_water": 0.21,
+      "medication": 0.1
+    }
+  },
+  {
+    "image_path": "data_image/hurricane_harvey/14_9_2017/908126625065299969_0.jpg",
+    "caption": "E. Coli As High As 135 Times The Safe Limit Discovered In Houston Homes As Residents Return\u2026 https://t.co/7Me2gF7ryp https://t.co/JznxigEdqa",
+    "labels": {
+      "infrastructure": 0.25,
+      "food": 0.1,
+      "shelter": 0.15,
+      "sanitation_water": 0.92,
+      "medication": 0.3
+    }
+  },
+  {
+    "image_path": "data_image/hurricane_harvey/14_9_2017/908128265830887424_0.jpg",
+    "caption": "Recap of 2017 storm season- 21 chases 7 shelf clouds 1 tornado 2 hail cores punched 0 regrets. Bring it on 2018! https://t.co/VkKPOXtJAo",
+    "labels": {
+      "infrastructure": 0.0,
+      "food": 0.0,
+      "shelter": 0.0,
+      "sanitation_water": 0.0,
+      "medication": 0.0
+    }
+  },
+  {
+    "image_path": "data_image/hurricane_harvey/14_9_2017/908128265830887424_1.jpg",
+    "caption": "Recap of 2017 storm season- 21 chases 7 shelf clouds 1 tornado 2 hail cores punched 0 regrets. Bring it on 2018! https://t.co/VkKPOXtJAo",
+    "labels": {
+      "infrastructure": 0.15,
+      "food": 0.05,
+      "shelter": 0.1,
+      "sanitation_water": 0.12,
+      "medication": 0.07
+    }
+  },
+  {
+    "image_path": "data_image/hurricane_harvey/14_9_2017/908128387939622912_0.jpg",
+    "caption": "FEMA barges expected to arrive in Port Arthur in two days https://t.co/A1yo9BxdpL https://t.co/TsyeMOoNDF",
+    "labels": {
+      "infrastructure": 0,
+      "food": 0,
+      "shelter": 0,
+      "sanitation_water": 0,
+      "medication": 0
+    }
+  },
+  {
+    "image_path": "data_image/hurricane_harvey/14_9_2017/908130612225167360_0.jpg",
+    "caption": "Cleaning up some trees from the tornado last week #chainsaws #getitdone https://t.co/SoBxlsKW4v",
+    "labels": {
+      "infrastructure": 0.53,
+      "food": 0.0,
+      "shelter": 0.0,
+      "sanitation_water": 0.0,
+      "medication": 0.0
+    }
+  },
+  {
+    "image_path": "data_image/hurricane_harvey/14_9_2017/908133070620028933_0.jpg",
+    "caption": "HURRICANE HARVEY WAS NO MATCH FOR THE BOXING FAMILY - https://t.co/mQqQWNQqHh #FightNewsAsia #FightNews https://t.co/PGD65xUizA",
+    "labels": {
+      "infrastructure": 0.0,
+      "food": 0.0,
+      "shelter": 0.0,
+      "sanitation_water": 0.0,
+      "medication": 0.0
+    }
   }
 ]
