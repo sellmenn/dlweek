@@ -67,7 +67,7 @@ def precompute_features(labels_file: str, data_dir: str, encoder: CLIPEncoder) -
 
 
 def train(model, train_loader, val_loader, epochs, lr, device):
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
     criterion = nn.BCELoss()
     model.to(device)
 

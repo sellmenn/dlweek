@@ -7,57 +7,80 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f1117; color: #e0e0e0; display: flex; height: 100vh; overflow: hidden; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f1117; color: #e0e0e0; display: flex; height: 100vh; overflow: hidden; }
 
-  #sidebar { width: 380px; min-width: 380px; background: #161922; display: flex; flex-direction: column; border-right: 1px solid #2a2d3a; }
-  #sidebar-header { padding: 20px; border-bottom: 1px solid #2a2d3a; }
-  #sidebar-header h1 { font-size: 18px; font-weight: 700; color: #fff; margin-bottom: 4px; }
-  #sidebar-header p { font-size: 12px; color: #888; }
+#sidebar { width: 400px; min-width: 400px; background: #161922; display: flex; flex-direction: column; border-right: 1px solid #2a2d3a; overflow: hidden; }
+#sidebar-header { padding: 14px 20px; border-bottom: 1px solid #2a2d3a; }
+#sidebar-header h1 { font-size: 16px; font-weight: 700; color: #fff; margin-bottom: 2px; }
+#sidebar-header p { font-size: 11px; color: #888; }
 
-  #controls { padding: 16px 20px; border-bottom: 1px solid #2a2d3a; }
-  #controls label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #888; display: block; margin-bottom: 6px; }
-  #timeline-slider { width: 100%; accent-color: #6c63ff; cursor: pointer; }
-  #timeline-info { display: flex; justify-content: space-between; margin-top: 6px; font-size: 12px; color: #aaa; }
-  .btn-row { display: flex; gap: 8px; margin-top: 12px; }
-  .btn { flex: 1; padding: 8px; border: 1px solid #3a3d4a; border-radius: 6px; background: #1e2130; color: #e0e0e0; font-size: 13px; cursor: pointer; text-align: center; transition: all 0.15s; }
-  .btn:hover { background: #2a2d40; border-color: #6c63ff; }
-  .btn.active { background: #6c63ff; border-color: #6c63ff; color: #fff; }
-  .speed-row { display: flex; gap: 4px; margin-top: 8px; }
-  .speed-btn { padding: 4px 10px; border: 1px solid #3a3d4a; border-radius: 4px; background: #1e2130; color: #aaa; font-size: 11px; cursor: pointer; }
-  .speed-btn.active { background: #6c63ff; border-color: #6c63ff; color: #fff; }
+/* Pipeline steps */
+#pipeline { padding: 8px 20px; border-bottom: 1px solid #2a2d3a; display: flex; gap: 6px; }
+.step { display: flex; align-items: center; gap: 6px; flex: 1; padding: 6px 8px; border-radius: 6px; background: #1e2130; }
+.step-num { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; border: 2px solid #3a3d4a; color: #555; background: transparent; transition: all 0.3s; }
+.step.active .step-num { border-color: #6c63ff; color: #6c63ff; background: rgba(108,99,255,0.1); }
+.step.done .step-num { border-color: #2ecc71; color: #fff; background: #2ecc71; }
+.step-body { flex: 1; }
+.step-title { font-size: 10px; font-weight: 600; color: #555; transition: color 0.3s; line-height: 1.3; }
+.step.active .step-title, .step.done .step-title { color: #e0e0e0; }
 
-  #cluster-list { flex: 1; overflow-y: auto; padding: 12px 20px; }
-  .cluster-card { background: #1e2130; border: 1px solid #2a2d3a; border-radius: 8px; padding: 14px; margin-bottom: 10px; transition: border-color 0.2s; cursor: pointer; }
-  .cluster-card:hover { border-color: #6c63ff; }
-  .cluster-card.highlighted { border-color: #6c63ff; box-shadow: 0 0 12px rgba(108,99,255,0.3); }
-  .cluster-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-  .cluster-name { font-weight: 600; font-size: 14px; }
-  .cluster-badge { display: flex; align-items: center; gap: 4px; }
-  .cluster-dot { width: 10px; height: 10px; border-radius: 50%; }
-  .cluster-count { font-size: 12px; color: #888; background: #262938; padding: 2px 8px; border-radius: 10px; }
-  .bar-row { display: flex; align-items: center; margin-bottom: 4px; }
-  .bar-label { width: 100px; font-size: 11px; color: #aaa; text-transform: capitalize; }
-  .bar-track { flex: 1; height: 8px; background: #262938; border-radius: 4px; overflow: hidden; }
-  .bar-fill { height: 100%; border-radius: 4px; transition: width 0.4s ease; }
-  .bar-value { width: 40px; text-align: right; font-size: 11px; color: #aaa; font-variant-numeric: tabular-nums; }
+/* Controls */
+#controls { padding: 10px 20px; border-bottom: 1px solid #2a2d3a; }
+#controls label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #888; display: block; margin-bottom: 6px; }
+#timeline-slider { width: 100%; accent-color: #6c63ff; cursor: pointer; }
+#timeline-info { display: flex; justify-content: space-between; margin-top: 4px; font-size: 12px; color: #aaa; }
+.btn-row { display: flex; gap: 8px; margin-top: 8px; }
+.btn { flex: 1; padding: 6px 12px; border: 1px solid #3a3d4a; border-radius: 6px; background: #1e2130; color: #e0e0e0; font-size: 12px; cursor: pointer; text-align: center; transition: all 0.15s; }
+.btn:hover:not(.disabled) { background: #2a2d40; border-color: #6c63ff; }
+.btn.active { background: #6c63ff; border-color: #6c63ff; color: #fff; }
+.btn.disabled { opacity: 0.35; cursor: not-allowed; pointer-events: none; }
+.btn-accent { background: #6c63ff; border-color: #6c63ff; color: #fff; font-weight: 600; }
+.btn-accent:hover { background: #5a52e0; }
+.btn-accent.disabled { background: #3a3d4a; border-color: #3a3d4a; }
+.speed-row { display: flex; gap: 4px; margin-top: 6px; }
+.speed-btn { padding: 3px 10px; border: 1px solid #3a3d4a; border-radius: 4px; background: #1e2130; color: #aaa; font-size: 11px; cursor: pointer; }
+.speed-btn.active { background: #6c63ff; border-color: #6c63ff; color: #fff; }
 
-  #map-container { flex: 1; position: relative; }
-  #map { width: 100%; height: 100%; }
-  #stats-overlay { position: absolute; top: 12px; right: 12px; z-index: 1000; background: rgba(22,25,34,0.92); backdrop-filter: blur(8px); border: 1px solid #2a2d3a; border-radius: 8px; padding: 12px 16px; font-size: 12px; }
-  #stats-overlay .stat { margin-bottom: 4px; }
-  #stats-overlay .stat-val { font-weight: 600; color: #6c63ff; }
+/* Progress */
+.progress-bar { width: 100%; height: 6px; background: #262938; border-radius: 3px; margin-top: 8px; overflow: hidden; display: none; }
+.progress-bar.visible { display: block; }
+.progress-fill { height: 100%; background: #6c63ff; border-radius: 3px; transition: width 0.15s; width: 0%; }
+.progress-text { font-size: 11px; color: #888; margin-top: 4px; display: none; }
+.progress-text.visible { display: block; }
 
-  .leaflet-popup-content-wrapper { background: #1e2130; color: #e0e0e0; border-radius: 8px; border: 1px solid #3a3d4a; }
-  .leaflet-popup-tip { background: #1e2130; }
-  .leaflet-popup-content { font-size: 12px; line-height: 1.5; }
-  .popup-title { font-weight: 600; margin-bottom: 4px; color: #fff; }
-  .popup-caption { color: #aaa; font-style: italic; margin-bottom: 6px; }
-  .popup-score { display: flex; justify-content: space-between; font-size: 11px; }
+/* Cluster cards */
+#cluster-list { flex: 1; overflow-y: auto; padding: 10px 20px; min-height: 0; }
+.cluster-card { background: #1e2130; border: 1px solid #2a2d3a; border-radius: 8px; padding: 12px; margin-bottom: 8px; transition: all 0.3s; cursor: pointer; }
+.cluster-card:hover { border-color: #6c63ff; }
+.cluster-card.highlighted { border-color: #6c63ff; box-shadow: 0 0 12px rgba(108,99,255,0.3); }
+.cluster-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.cluster-name { font-weight: 600; font-size: 13px; }
+.cluster-badge { display: flex; align-items: center; gap: 6px; }
+.cluster-dot { width: 10px; height: 10px; border-radius: 50%; }
+.cluster-count { font-size: 11px; color: #888; background: #262938; padding: 2px 8px; border-radius: 10px; }
+.bar-row { display: flex; align-items: center; margin-bottom: 3px; }
+.bar-label { width: 90px; font-size: 10px; color: #aaa; text-transform: capitalize; }
+.bar-track { flex: 1; height: 7px; background: #262938; border-radius: 4px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 4px; transition: width 0.6s ease; }
+.bar-value { width: 36px; text-align: right; font-size: 10px; color: #aaa; font-variant-numeric: tabular-nums; }
 
-  ::-webkit-scrollbar { width: 6px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: #3a3d4a; border-radius: 3px; }
+/* Map */
+#map-container { flex: 1; position: relative; }
+#map { width: 100%; height: 100%; }
+#stats-overlay { position: absolute; top: 12px; right: 12px; z-index: 1000; background: rgba(22,25,34,0.92); backdrop-filter: blur(8px); border: 1px solid #2a2d3a; border-radius: 8px; padding: 12px 16px; font-size: 12px; }
+#stats-overlay .stat { margin-bottom: 4px; }
+#stats-overlay .stat-val { font-weight: 600; color: #6c63ff; }
+
+.leaflet-popup-content-wrapper { background: #1e2130; color: #e0e0e0; border-radius: 8px; border: 1px solid #3a3d4a; }
+.leaflet-popup-tip { background: #1e2130; }
+.leaflet-popup-content { font-size: 12px; line-height: 1.5; }
+.popup-caption { color: #aaa; font-style: italic; margin-bottom: 6px; }
+.popup-score { display: flex; justify-content: space-between; font-size: 11px; }
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #3a3d4a; border-radius: 3px; }
 </style>
 </head>
 <body>
@@ -68,12 +91,27 @@
     <p>Post-Crisis Resource Allocation Demo</p>
   </div>
 
+  <div id="pipeline">
+    <div class="step active" id="step-1">
+      <div class="step-num">1</div>
+      <div class="step-body"><div class="step-title">Collect + Cluster</div></div>
+    </div>
+    <div class="step" id="step-2">
+      <div class="step-num">2</div>
+      <div class="step-body"><div class="step-title">CLIP + Model</div></div>
+    </div>
+    <div class="step" id="step-3">
+      <div class="step-num">3</div>
+      <div class="step-body"><div class="step-title">Results</div></div>
+    </div>
+  </div>
+
   <div id="controls">
     <label>Timeline</label>
     <input type="range" id="timeline-slider" min="0" max="100" value="0">
     <div id="timeline-info">
       <span id="post-count">0 posts</span>
-      <span id="current-date">—</span>
+      <span id="current-date">&mdash;</span>
     </div>
     <div class="btn-row">
       <div class="btn" id="btn-play">&#9654; Play</div>
@@ -85,6 +123,12 @@
       <div class="speed-btn" data-speed="50">2x</div>
       <div class="speed-btn" data-speed="20">4x</div>
     </div>
+
+    <div class="btn-row" style="margin-top:10px">
+      <div class="btn btn-accent disabled" id="btn-model">Run Model Inference</div>
+    </div>
+    <div class="progress-bar" id="model-progress"><div class="progress-fill" id="model-progress-fill"></div></div>
+    <div class="progress-text" id="model-progress-text"></div>
   </div>
 
   <div id="cluster-list"></div>
@@ -94,82 +138,129 @@
   <div id="map"></div>
   <div id="stats-overlay">
     <div class="stat">Total Posts: <span class="stat-val" id="stat-total">0</span></div>
-    <div class="stat">Clusters Active: <span class="stat-val" id="stat-clusters">0</span></div>
+    <div class="stat">Clusters: <span class="stat-val" id="stat-clusters">&mdash;</span></div>
   </div>
 </div>
 
 <script>
-const COLORS = [
-  '#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6',
-  '#1abc9c', '#e67e22', '#e84393', '#00cec9', '#fd79a8'
-];
-const BAR_COLORS = {
-  infrastructure: '#e74c3c', food: '#f39c12', shelter: '#3498db',
-  sanitation_water: '#2ecc71', medication: '#9b59b6'
-};
+// ── Configuration ──────────────────────────────────────────────────────────
+// Change API_BASE if the backend runs on a different host/port.
+// Example: const API_BASE = 'http://localhost:8000';
+const API_BASE = '';
 
-let DATA = null;
-let map, markers = [], clusterCircles = {};
-let currentIndex = 0, playing = false, animTimer = null;
-let speed = 100;
+const COLORS = ['#e74c3c','#3498db','#2ecc71','#f39c12','#9b59b6','#1abc9c','#e67e22','#e84393','#00cec9','#fd79a8'];
+const BAR_COLORS = { infrastructure:'#e74c3c', food:'#f39c12', shelter:'#3498db', sanitation_water:'#2ecc71', medication:'#9b59b6' };
 
-// Init map
-map = L.map('map', { zoomControl: false }).setView([18.25, -66.5], 9);
+let posts = [], categories = [], clusterMeta = {};
+let postScores = null, clusterScores = null;
+let markers = [], clusterCircles = {};
+let currentIndex = 0, playing = false, animTimer = null, speed = 100;
+
+const map = L.map('map', { zoomControl: false }).setView([18.25, -66.5], 9);
 L.control.zoom({ position: 'bottomright' }).addTo(map);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-  attribution: '&copy; OpenStreetMap &copy; CARTO',
-  maxZoom: 19,
+  attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 19
 }).addTo(map);
 
 function clusterColor(label) {
-  if (label < 0) return '#555';
+  if (label == null || label < 0) return '#8899aa';
   return COLORS[label % COLORS.length];
 }
 
-function renderClusters(posts) {
-  const clusterList = document.getElementById('cluster-list');
-  clusterList.innerHTML = '';
+function showPosts(n) {
+  markers.forEach(m => map.removeLayer(m));
+  markers = [];
 
-  if (!DATA) return;
+  for (let i = 0; i < n; i++) {
+    const p = posts[i];
+    const isNew = i >= n - 10;
+    const color = clusterColor(p.cluster);
 
-  // Compute running averages from visible posts
-  const clusterPosts = {};
-  posts.forEach(p => {
-    if (p.cluster < 0) return;
-    if (!clusterPosts[p.cluster]) clusterPosts[p.cluster] = [];
-    clusterPosts[p.cluster].push(p);
-  });
+    const marker = L.circleMarker([p.lat, p.lon], {
+      radius: 6,
+      fillColor: color,
+      color: isNew ? '#fff' : color,
+      weight: isNew ? 2 : 0.5,
+      fillOpacity: isNew ? 0.95 : 0.7,
+    }).addTo(map);
 
-  const clusterIds = Object.keys(DATA.clusters).map(Number).sort((a,b) => a - b);
+    let popupHtml = '';
+    if (p.image) {
+      popupHtml += `<img src="${API_BASE}${p.image}" style="width:100%;max-height:180px;object-fit:cover;border-radius:4px;margin-bottom:8px;" loading="lazy">`;
+    }
+
+    const cid = p.cluster;
+    const cname = cid >= 0 && clusterMeta[String(cid)] ? clusterMeta[String(cid)].name : 'Unassigned';
+    popupHtml += `<div style="font-weight:600;margin-bottom:4px;color:${clusterColor(cid)}">${cname}</div>`;
+    popupHtml += `<div class="popup-caption">${p.caption.substring(0, 140)}${p.caption.length > 140 ? '...' : ''}</div>`;
+    popupHtml += `<div style="font-size:11px;color:#888">${p.date}</div>`;
+
+    if (postScores && postScores[i]) {
+      popupHtml += '<div style="margin-top:6px">';
+      categories.forEach(cat => {
+        popupHtml += `<div class="popup-score"><span>${cat.replace('_',' ')}</span><span>${postScores[i][cat].toFixed(2)}</span></div>`;
+      });
+      popupHtml += '</div>';
+    }
+
+    marker.bindPopup(popupHtml, { maxWidth: 300, minWidth: 220 });
+    markers.push(marker);
+  }
+
+  const last = n > 0 ? posts[n - 1] : null;
+  document.getElementById('post-count').textContent = `${n} posts`;
+  document.getElementById('current-date').textContent = last ? last.date : '\u2014';
+  document.getElementById('stat-total').textContent = n;
+  document.getElementById('timeline-slider').value = n;
+
+  if (n >= posts.length && !postScores) {
+    document.getElementById('btn-model').classList.remove('disabled');
+  }
+
+  renderClusterCards();
+}
+
+function renderClusterCards() {
+  const list = document.getElementById('cluster-list');
+  list.innerHTML = '';
+
+  const clusterIds = Object.keys(clusterMeta).map(Number).sort((a,b) => a-b);
   let activeCount = 0;
 
+  Object.values(clusterCircles).forEach(c => map.removeLayer(c));
+  clusterCircles = {};
+
   clusterIds.forEach(cid => {
-    const meta = DATA.clusters[String(cid)];
-    const members = clusterPosts[cid] || [];
-    if (members.length === 0) return;
+    const memberIndices = [];
+    for (let i = 0; i < currentIndex; i++) {
+      if (posts[i].cluster === cid) memberIndices.push(i);
+    }
+    if (memberIndices.length === 0) return;
     activeCount++;
 
-    // Running average scores
-    const avgScores = {};
-    DATA.categories.forEach(cat => {
-      avgScores[cat] = members.reduce((s, p) => s + p.scores[cat], 0) / members.length;
-    });
+    const meta = clusterMeta[String(cid)];
+
+    clusterCircles[cid] = L.circle(meta.centroid, {
+      radius: 4000, color: clusterColor(cid), fillColor: clusterColor(cid),
+      fillOpacity: 0.08, weight: 1.5, opacity: 0.4, dashArray: '6 4',
+    }).addTo(map);
 
     const card = document.createElement('div');
     card.className = 'cluster-card';
-    card.dataset.cluster = cid;
 
     let barsHtml = '';
-    DATA.categories.forEach(cat => {
-      const val = avgScores[cat];
-      const pct = (val * 100).toFixed(1);
-      const label = cat.replace('_', ' ');
-      barsHtml += `<div class="bar-row">
-        <span class="bar-label">${label}</span>
-        <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${BAR_COLORS[cat]}"></div></div>
-        <span class="bar-value">${val.toFixed(2)}</span>
-      </div>`;
-    });
+    if (clusterScores && clusterScores[String(cid)]) {
+      const scores = clusterScores[String(cid)];
+      categories.forEach(cat => {
+        const val = scores[cat];
+        const pct = (val * 100).toFixed(1);
+        barsHtml += `<div class="bar-row">
+          <span class="bar-label">${cat.replace('_',' ')}</span>
+          <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${BAR_COLORS[cat]}"></div></div>
+          <span class="bar-value">${val.toFixed(2)}</span>
+        </div>`;
+      });
+    }
 
     card.innerHTML = `
       <div class="cluster-header">
@@ -177,7 +268,7 @@ function renderClusters(posts) {
           <div class="cluster-dot" style="background:${clusterColor(cid)}"></div>
           <span class="cluster-name">${meta.name}</span>
         </div>
-        <span class="cluster-count">${members.length} posts</span>
+        <span class="cluster-count">${memberIndices.length} posts</span>
       </div>
       ${barsHtml}
     `;
@@ -188,114 +279,57 @@ function renderClusters(posts) {
       card.classList.add('highlighted');
     });
 
-    clusterList.appendChild(card);
+    list.appendChild(card);
   });
 
   document.getElementById('stat-clusters').textContent = activeCount;
-
-  // Update cluster boundary circles
-  Object.values(clusterCircles).forEach(c => map.removeLayer(c));
-  clusterCircles = {};
-  clusterIds.forEach(cid => {
-    const members = clusterPosts[cid] || [];
-    if (members.length < 2) return;
-    const meta = DATA.clusters[String(cid)];
-    clusterCircles[cid] = L.circle(meta.centroid, {
-      radius: 3000,
-      color: clusterColor(cid),
-      fillColor: clusterColor(cid),
-      fillOpacity: 0.08,
-      weight: 1.5,
-      opacity: 0.4,
-      dashArray: '6 4',
-    }).addTo(map);
-  });
 }
 
-function showPosts(n) {
-  if (!DATA) return;
-  const visiblePosts = DATA.posts.slice(0, n);
-
-  // Remove old markers
-  markers.forEach(m => map.removeLayer(m));
-  markers = [];
-
-  visiblePosts.forEach((p, i) => {
-    const isNew = i >= n - 10;
-    const marker = L.circleMarker([p.lat, p.lon], {
-      radius: 6,
-      fillColor: clusterColor(p.cluster),
-      color: '#fff',
-      weight: isNew ? 2 : 0.5,
-      fillOpacity: isNew ? 0.95 : 0.7,
-    }).addTo(map);
-
-    let scoresHtml = '';
-    DATA.categories.forEach(cat => {
-      scoresHtml += `<div class="popup-score"><span>${cat.replace('_',' ')}</span><span>${p.scores[cat].toFixed(2)}</span></div>`;
-    });
-
-    marker.bindPopup(`
-      <div class="popup-title">Cluster: ${DATA.clusters[String(p.cluster)]?.name || 'Noise'}</div>
-      <div class="popup-caption">${p.caption.substring(0, 120)}${p.caption.length > 120 ? '...' : ''}</div>
-      <div style="margin-top:6px;font-size:11px;color:#888">${p.date}</div>
-      <div style="margin-top:6px">${scoresHtml}</div>
-    `, { maxWidth: 280 });
-
-    markers.push(marker);
-  });
-
-  // Update UI
-  const last = visiblePosts[visiblePosts.length - 1];
-  document.getElementById('post-count').textContent = `${n} posts`;
-  document.getElementById('current-date').textContent = last ? last.date : '—';
-  document.getElementById('stat-total').textContent = n;
-  document.getElementById('timeline-slider').value = n;
-
-  renderClusters(visiblePosts);
-}
-
-function step() {
-  if (!DATA) return;
-  if (currentIndex >= DATA.posts.length) {
-    stopPlay();
-    return;
+function setPhase(p) {
+  for (let i = 1; i <= 3; i++) {
+    const el = document.getElementById(`step-${i}`);
+    el.classList.remove('active', 'done');
+    if (i < p) el.classList.add('done');
+    else if (i === p) el.classList.add('active');
   }
-  currentIndex = Math.min(currentIndex + 5, DATA.posts.length);
+}
+
+// ── Timeline ───────────────────────────────────────────────────────────────
+function step() {
+  if (currentIndex >= posts.length) { stopPlay(); return; }
+  currentIndex = Math.min(currentIndex + 5, posts.length);
   showPosts(currentIndex);
 }
-
 function startPlay() {
   playing = true;
-  document.getElementById('btn-play').textContent = '⏸ Pause';
+  document.getElementById('btn-play').textContent = '\u23F8 Pause';
   document.getElementById('btn-play').classList.add('active');
   animTimer = setInterval(step, speed);
 }
-
 function stopPlay() {
   playing = false;
-  document.getElementById('btn-play').textContent = '▶ Play';
+  document.getElementById('btn-play').textContent = '\u25B6 Play';
   document.getElementById('btn-play').classList.remove('active');
   if (animTimer) { clearInterval(animTimer); animTimer = null; }
 }
 
-// Controls
-document.getElementById('btn-play').addEventListener('click', () => {
-  if (playing) stopPlay(); else startPlay();
-});
-
+document.getElementById('btn-play').addEventListener('click', () => playing ? stopPlay() : startPlay());
 document.getElementById('btn-reset').addEventListener('click', () => {
   stopPlay();
   currentIndex = 0;
+  postScores = null; clusterScores = null;
+  setPhase(1);
+  document.getElementById('btn-model').classList.add('disabled');
+  document.getElementById('btn-model').textContent = 'Run Model Inference';
+  document.getElementById('model-progress').classList.remove('visible');
+  document.getElementById('model-progress-text').classList.remove('visible');
   showPosts(0);
 });
-
-document.getElementById('timeline-slider').addEventListener('input', (e) => {
+document.getElementById('timeline-slider').addEventListener('input', e => {
   stopPlay();
   currentIndex = parseInt(e.target.value);
   showPosts(currentIndex);
 });
-
 document.querySelectorAll('.speed-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
@@ -305,12 +339,50 @@ document.querySelectorAll('.speed-btn').forEach(btn => {
   });
 });
 
-// Load data
-fetch('demo_data.json')
+// ── Model inference ────────────────────────────────────────────────────────
+document.getElementById('btn-model').addEventListener('click', () => {
+  const btn = document.getElementById('btn-model');
+  if (btn.classList.contains('disabled')) return;
+  btn.classList.add('disabled');
+  btn.textContent = 'Encoding...';
+  setPhase(2);
+
+  const progressBar = document.getElementById('model-progress');
+  const progressFill = document.getElementById('model-progress-fill');
+  const progressText = document.getElementById('model-progress-text');
+  progressBar.classList.add('visible');
+  progressText.classList.add('visible');
+
+  const evtSource = new EventSource(API_BASE + '/api/predict');
+  evtSource.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    if (data.type === 'progress') {
+      const pct = ((data.current / data.total) * 100).toFixed(1);
+      progressFill.style.width = pct + '%';
+      progressText.textContent = `CLIP encoding post ${data.current} / ${data.total}`;
+    }
+    if (data.type === 'done') {
+      evtSource.close();
+      postScores = data.post_scores;
+      clusterScores = data.cluster_scores;
+      setPhase(3);
+      btn.textContent = 'Inference Complete';
+      progressFill.style.width = '100%';
+      progressText.textContent = 'Resource demands predicted for all clusters';
+      showPosts(currentIndex);
+    }
+  };
+});
+
+// ── Load data ──────────────────────────────────────────────────────────────
+fetch(API_BASE + '/api/posts')
   .then(r => r.json())
   .then(data => {
-    DATA = data;
-    document.getElementById('timeline-slider').max = data.posts.length;
+    posts = data.posts;
+    categories = data.categories;
+    clusterMeta = data.clusters;
+    document.getElementById('timeline-slider').max = posts.length;
+    setPhase(1);
     showPosts(0);
   });
 </script>
