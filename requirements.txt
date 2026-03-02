@@ -1,0 +1,9 @@
+torch
+torchvision
+transformers
+Pillow
+scikit-learn
+numpy
+openai
+python-dotenv
+matplotlib
