@@ -13,5 +13,8 @@ export interface Cluster {
     count: number,
     severity_score: number,
     severity_class: "low" | "medium" | "high"
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 }
