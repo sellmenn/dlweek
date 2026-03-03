@@ -8,6 +8,7 @@
  *  - PostScoreRow      — top predicted need for a single post
  */
 
+import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import { GlassCard } from "./glassCard";
 import { SectionCard } from "./sectionCard";
 
@@ -38,12 +39,13 @@ const CATEGORY_LABELS: Record<Category, string> = {
   medication:       "Medication",
 };
 
-const CATEGORY_COLORS: Record<Category, string> = {
-  infrastructure:   "bg-blue-400",
-  food:             "bg-amber-400",
-  shelter:          "bg-green-400",
-  sanitation_water: "bg-cyan-400",
-  medication:       "bg-purple-400",
+
+const CATEGORY_HEX: Record<Category, string> = {
+  infrastructure:   "#737E0B",
+  food:             "#A18E23",
+  shelter:          "#FEDC57",
+  sanitation_water: "#AB8F4F",
+  medication:       "#676106",
 };
 
 // ─── CategoryScoreBar ─────────────────────────────────────────────────────────
@@ -72,8 +74,8 @@ export function CategoryScoreBar({
       </div>
       <div className="h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
         <div
-          className={`h-full rounded-full transition-all duration-500 ${CATEGORY_COLORS[category]}`}
-          style={{ width: `${pct}%` }}
+          className="h-full rounded-full transition-all duration-500"
+          style={{ width: `${pct}%`, backgroundColor: CATEGORY_HEX[category] }}
         />
       </div>
     </div>
@@ -110,11 +112,37 @@ export function ClusterScorePanel({
         ) : undefined
       }
     >
-      <div className="flex flex-col gap-3">
-        {CATEGORIES.map((cat) => (
-          <CategoryScoreBar key={cat} category={cat} score={scores[cat] ?? 0} />
-        ))}
-        <p className="text-[10px] text-white/35 uppercase tracking-[2px] mt-1">
+      <div className="flex flex-col gap-2">
+        <ResponsiveContainer width="100%" height={130}>
+          <BarChart
+            layout="vertical"
+            data={CATEGORIES.map((cat) => ({
+              name: CATEGORY_LABELS[cat],
+              score: Math.round((scores[cat] ?? 0) * 100),
+              color: CATEGORY_HEX[cat],
+            }))}
+            margin={{ top: 0, right: 28, left: 0, bottom: 0 }}
+          >
+            <XAxis type="number" domain={[0, 100]} hide />
+            <YAxis
+              type="category"
+              dataKey="name"
+              width={95}
+              tick={{ fill: "rgba(255,255,255,0.6)", fontSize: 10 }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <Bar
+              dataKey="score"
+              background={{ fill: "rgba(255,255,255,0.05)", radius: 3 }}
+              shape={(props: any) => {
+                const { x, y, width, height, index } = props;
+                return <rect x={x} y={y} width={width} height={height} fill={CATEGORY_HEX[CATEGORIES[index]]} rx={3} />;
+              }}
+            />
+          </BarChart>
+        </ResponsiveContainer>
+        <p className="text-[10px] text-white/35 uppercase tracking-[2px]">
           Top need:{" "}
           <span className="text-white/70 normal-case tracking-normal font-medium">
             {topCategory.replace("_", " ")}
@@ -203,7 +231,6 @@ export function PostScoreRow({
 }: PostScoreRowProps) {
   const topCategory = [...CATEGORIES].sort((a, b) => scores[b] - scores[a])[0];
   const topScore = scores[topCategory];
-  const color = CATEGORY_COLORS[topCategory];
 
   return (
     <div
@@ -224,7 +251,8 @@ export function PostScoreRow({
 
       <div className="flex flex-col items-end gap-1 flex-shrink-0">
         <span
-          className={`text-[10px] uppercase tracking-[2px] font-medium ${color.replace("bg-", "text-")}`}
+          className="text-[10px] uppercase tracking-[2px] font-medium"
+          style={{ color: CATEGORY_HEX[topCategory] }}
         >
           {CATEGORY_LABELS[topCategory]}
         </span>

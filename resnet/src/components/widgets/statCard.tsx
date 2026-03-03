@@ -10,8 +10,6 @@ interface StatCardProps {
 }
 
 const deltaColors: Record<string, string> = {
-  positive: "text-green-400",
-  negative: "text-red-400",
   neutral: "text-gray-400",
 };
 
