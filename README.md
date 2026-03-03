@@ -1,6 +1,6 @@
 # ResNet — Post-Crisis Resource Allocation System
 
-An end-to-end machine learning system that analyzes social media posts during and right after disasters to predict emergency resource needs from differing clusters and visualize them on an interactive map for better resource strategistion (e g. how to distribute their limited personnels across different endangered clusters). Combines multimodal deep learning (CLIP), spatial clustering (DBSCAN), and a trained neural network classifier with a React + Leaflet frontend and LLM-powered crisis summaries.
+An end-to-end machine learning system that analyzes social media posts during and right after disasters to predict emergency resource needs from differing clusters and visualize them on an interactive map for better resource strategistion (e g. how to distribute their limited personnels across different victim clusters). Combines multimodal deep learning (CLIP), spatial clustering (DBSCAN), and a trained neural network classifier with a React + Leaflet frontend and LLM-powered crisis summaries.
 
 ## Tech Stack
 
