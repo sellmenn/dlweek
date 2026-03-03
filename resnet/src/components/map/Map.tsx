@@ -27,7 +27,7 @@ function MapEventHandler({ clusters, phase, onFocusCluster, suppressRef }: {
     const map = useMap();
 
     const checkFocus = () => {
-        if (phase !== 'done') return;
+        if (phase === 'idle') return;
         if (suppressRef.current) return;
         const zoom = map.getZoom();
         if (zoom >= ZOOM_THRESHOLD) {
@@ -77,6 +77,8 @@ const Map = () => {
     const [flyTarget, setFlyTarget] = useState<[number, number] | null>(null);
     const [analyzedPosts, setAnalyzedPosts] = useState<AnalyzedPost[]>([]);
     const [analysisStartTime, setAnalysisStartTime] = useState<number>(0);
+    const [llmSummary, setLlmSummary] = useState('');
+    const [summaryLoading, setSummaryLoading] = useState(false);
 
     const allPostsRef = useRef<Post[]>([]);
     const clustersRef = useRef<Record<string, Cluster>>({});
@@ -101,6 +103,39 @@ const Map = () => {
             })
             .catch(err => console.error('Failed to fetch posts:', err));
     }, []);
+
+    // Fetch LLM summary when analysis completes
+    useEffect(() => {
+        if (phase !== 'done' || analyzedPosts.length === 0) return;
+        setSummaryLoading(true);
+        setLlmSummary('');
+
+        const sevCounts: Record<string, number> = { severe: 0, mild: 0, little_or_none: 0 };
+        for (const p of analyzedPosts) {
+            sevCounts[p.severity_label] = (sevCounts[p.severity_label] ?? 0) + 1;
+        }
+
+        const clusterData = Object.entries(clusters).map(([cid, c]) => ({
+            name: c.name,
+            postCount: c.count,
+            severity: c.combined_severity ?? 'unknown',
+        }));
+
+        fetch('/api/summarize', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                totalPosts: analyzedPosts.length,
+                clusterCount: Object.keys(clusters).length,
+                severityDistribution: sevCounts,
+                clusters: clusterData,
+            }),
+        })
+            .then(r => r.json())
+            .then(d => setLlmSummary(d.summary ?? 'No summary available.'))
+            .catch(() => setLlmSummary('Failed to generate summary.'))
+            .finally(() => setSummaryLoading(false));
+    }, [phase, analyzedPosts, clusters]);
 
     const startDrip = () => {
         dripIndexRef.current = 0;
@@ -156,7 +191,7 @@ const Map = () => {
                 setTotal(data.total);
                 dripTargetRef.current = data.current;
 
-                // Store analyzed post data
+                // Store analyzed post data and push to state periodically
                 const postIdx = data.current - 1;
                 if (postIdx < allPostsRef.current.length) {
                     analyzedPostsRef.current.push({
@@ -164,6 +199,10 @@ const Map = () => {
                         scores: data.scores ?? {},
                         severity_label: data.severity_label ?? 'little_or_none',
                     });
+                    // Update state every 10 posts for live widget updates
+                    if (data.current % 10 === 0 || data.current >= data.total) {
+                        setAnalyzedPosts([...analyzedPostsRef.current]);
+                    }
                 }
 
                 const cid = String(data.cluster);
@@ -300,6 +339,8 @@ const Map = () => {
                         focusedCluster={focusedCluster}
                         onFocusCluster={handleFocusCluster}
                         analysisStartTime={analysisStartTime}
+                        llmSummary={llmSummary}
+                        summaryLoading={summaryLoading}
                     />
                 </div>
             </div>

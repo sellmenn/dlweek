@@ -14,7 +14,7 @@ export function TimerCard({ elapsed, className = "" }: TimerCardProps) {
       </p>
 
       {/* Bottom-left timer */}
-      <p className="text-4xl font-mono font-bold text-white tracking-tight self-start">
+      <p className="text-2xl font-mono font-bold text-white tracking-tight self-start whitespace-nowrap">
         {elapsed}
       </p>
     </GlassCard>
