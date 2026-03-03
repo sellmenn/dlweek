@@ -330,10 +330,10 @@ def api_predict():
             post["severity_score"] = round(float(severity_score), 4)
             post["severity_label"] = severity_label
 
-            yield f"data: {json.dumps({'type': 'progress', 'current': i + 1, 'total': total})}\n\n"
+            yield f"data: {json.dumps({'type': 'progress', 'current': i + 1, 'total': total, 'cluster': post.get('cluster_label', -1), 'severity_label': severity_label, 'scores': post['resource_scores']})}\n\n"
 
         # Per-cluster averaged scores + severity
-        SEVERITY_WEIGHTS = {"little_or_none": 0.0, "mild": 0.5, "severe": 1.0}
+        SEVERITY_WEIGHTS = {"little_or_none": 0.1, "mild": 0.3, "severe": 1.0}
         cluster_ids = sorted(set(p.get("cluster_label", -1) for p in POSTS if p.get("cluster_label", -1) != -1))
         cluster_scores = {}
         for cid in cluster_ids:
@@ -345,32 +345,28 @@ def api_predict():
             # Weighted severity: average of numeric severity weights across members
             weighted_severity = float(np.mean([SEVERITY_WEIGHTS[p["severity_label"]] for p in members]))
             avg["weighted_severity"] = round(weighted_severity, 4)
-            if weighted_severity < 0.33:
+            if weighted_severity < 0.20:
                 avg["combined_severity"] = "little_or_none"
-            elif weighted_severity < 0.66:
+            elif weighted_severity < 0.30:
                 avg["combined_severity"] = "mild"
             else:
                 avg["combined_severity"] = "severe"
 
             cluster_scores[str(cid)] = avg
 
-        post_scores = []
-        for p in POSTS:
-            ps = p.get("resource_scores", {cat: 0 for cat in RESOURCE_CATEGORIES})
-            ps["severity_score"] = p.get("severity_score", 0)
-            ps["severity_label"] = p.get("severity_label", "little_or_none")
-            post_scores.append(ps)
+        yield f"data: {json.dumps({'type': 'done', 'cluster_scores': cluster_scores})}\n\n"
 
-        yield f"data: {json.dumps({'type': 'done', 'post_scores': post_scores, 'cluster_scores': cluster_scores})}\n\n"
-
-    return Response(generate(), mimetype="text/event-stream")
+    return Response(generate(), mimetype="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    })
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(description="Hurricane Maria demo API server")
-    parser.add_argument("--sample", type=int, default=1000)
+    parser.add_argument("--sample", type=int, default=500)
     parser.add_argument("--model", default="checkpoints/model.pt")
     parser.add_argument("--tsv", default="CrisisMMD_v2.0/annotations/hurricane_maria_final_data.tsv")
     parser.add_argument("--image-dir", default="hurricane_maria")

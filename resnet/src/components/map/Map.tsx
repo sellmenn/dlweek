@@ -1,14 +1,70 @@
 import 'leaflet/dist/leaflet.css';
-import { MapContainer, TileLayer } from "react-leaflet";
+import { MapContainer, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import PostMarkers from "./cluster.tsx";
-import { useEffect, useState, useRef } from "react";
-import type { Post } from '../../types/post';
+import AnalysisSidebar from "./AnalysisSidebar.tsx";
+import { useEffect, useState, useRef, useCallback } from 'react';
+import type { Post, AnalyzedPost } from '../../types/post';
 import type { Cluster } from '../../types/cluster';
 
 const POSTS_PER_TICK = 5;
 const INTERVAL_MS = 20;
+const ZOOM_THRESHOLD = 11;
 
 type Phase = 'idle' | 'predicting' | 'animating' | 'done';
+
+/** Watches map zoom/pan and auto-focuses the nearest cluster when zoomed in. */
+function MapEventHandler({ clusters, phase, onFocusCluster, suppressRef }: {
+    clusters: Record<string, Cluster>;
+    phase: string;
+    onFocusCluster: (cid: string | null) => void;
+    suppressRef: React.MutableRefObject<boolean>;
+}) {
+    useMapEvents({
+        moveend: () => checkFocus(),
+        zoomend: () => checkFocus(),
+    });
+
+    const map = useMap();
+
+    const checkFocus = () => {
+        if (phase !== 'done') return;
+        if (suppressRef.current) return;
+        const zoom = map.getZoom();
+        if (zoom >= ZOOM_THRESHOLD) {
+            const center = map.getCenter();
+            let nearest: string | null = null;
+            let minDist = Infinity;
+            for (const [cid, cluster] of Object.entries(clusters)) {
+                const [lat, lon] = cluster.centroid;
+                const dist = Math.hypot(center.lat - lat, center.lng - lon);
+                if (dist < minDist) {
+                    minDist = dist;
+                    nearest = cid;
+                }
+            }
+            onFocusCluster(nearest);
+        } else {
+            onFocusCluster(null);
+        }
+    };
+
+    return null;
+}
+
+/** Flies the map to a target when it changes. Suppresses MapEventHandler during flight. */
+function MapFlyTo({ target, suppressRef }: { target: [number, number] | null; suppressRef: React.MutableRefObject<boolean> }) {
+    const map = useMap();
+    useEffect(() => {
+        if (target) {
+            suppressRef.current = true;
+            map.flyTo(target, 12, { duration: 1 });
+            map.once('moveend', () => {
+                suppressRef.current = false;
+            });
+        }
+    }, [target, map, suppressRef]);
+    return null;
+}
 
 const Map = () => {
     const [visiblePosts, setVisiblePosts] = useState<Post[]>([]);
@@ -16,14 +72,25 @@ const Map = () => {
     const [progress, setProgress] = useState(0);
     const [total, setTotal] = useState(0);
     const [phase, setPhase] = useState<Phase>('idle');
+    const [sliderValue, setSliderValue] = useState(0);
+    const [focusedCluster, setFocusedCluster] = useState<string | null>(null);
+    const [flyTarget, setFlyTarget] = useState<[number, number] | null>(null);
+    const [analyzedPosts, setAnalyzedPosts] = useState<AnalyzedPost[]>([]);
 
     const allPostsRef = useRef<Post[]>([]);
     const clustersRef = useRef<Record<string, Cluster>>({});
+    const flyingSuppressRef = useRef(false);
     const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const dripIndexRef = useRef(0);
+    const dripTargetRef = useRef(0);
+    const inferDoneRef = useRef(false);
+    const clusterSeverityRef = useRef<Record<string, number[]>>({});
+    const postSeverityRef = useRef<Array<{ cluster: string; weight: number }>>([]);
+    // Per-post analyzed data (scores + severity) accumulated during inference
+    const analyzedPostsRef = useRef<AnalyzedPost[]>([]);
 
     useEffect(() => {
-        fetch('http://localhost:8000/api/posts')
+        fetch('/api/posts')
             .then(res => res.json())
             .then(data => {
                 allPostsRef.current = data.posts;
@@ -34,70 +101,161 @@ const Map = () => {
             .catch(err => console.error('Failed to fetch posts:', err));
     }, []);
 
-    const startDrip = (posts: Post[]) => {
+    const startDrip = () => {
         dripIndexRef.current = 0;
-        setVisiblePosts([]);
-        setPhase('animating');
+        dripTargetRef.current = 0;
+        inferDoneRef.current = false;
 
         intervalRef.current = setInterval(() => {
             const i = dripIndexRef.current;
-            if (i >= posts.length) {
+            const target = dripTargetRef.current;
+
+            if (i >= target) return;
+
+            const next = Math.min(i + POSTS_PER_TICK, target);
+            setVisiblePosts(allPostsRef.current.slice(0, next));
+            dripIndexRef.current = next;
+
+            if (inferDoneRef.current && next >= allPostsRef.current.length) {
                 clearInterval(intervalRef.current!);
+                setSliderValue(allPostsRef.current.length);
+                setAnalyzedPosts([...analyzedPostsRef.current]);
                 setPhase('done');
-                return;
             }
-            setVisiblePosts(posts.slice(0, i + POSTS_PER_TICK));
-            dripIndexRef.current += POSTS_PER_TICK;
         }, INTERVAL_MS);
     };
 
     const handleRun = () => {
         if (phase === 'predicting' || phase === 'animating') return;
 
-        // Reset
         if (intervalRef.current) clearInterval(intervalRef.current);
         setVisiblePosts([]);
         setProgress(0);
         setPhase('predicting');
+        clusterSeverityRef.current = {};
+        postSeverityRef.current = [];
+        analyzedPostsRef.current = [];
 
-        const es = new EventSource('http://localhost:8000/api/predict');
+        startDrip();
+
+        const es = new EventSource('/api/predict');
 
         es.onmessage = (e) => {
-            const data = JSON.parse(e.data);
+            let data;
+            try {
+                data = JSON.parse(e.data);
+            } catch {
+                console.warn('SSE parse error, ignoring message');
+                return;
+            }
 
             if (data.type === 'progress') {
                 setProgress(data.current);
+                setTotal(data.total);
+                dripTargetRef.current = data.current;
+
+                // Store analyzed post data
+                const postIdx = data.current - 1;
+                if (postIdx < allPostsRef.current.length) {
+                    analyzedPostsRef.current.push({
+                        ...allPostsRef.current[postIdx],
+                        scores: data.scores ?? {},
+                        severity_label: data.severity_label ?? 'little_or_none',
+                    });
+                }
+
+                const cid = String(data.cluster);
+                if (cid !== '-1' && data.severity_label) {
+                    const WEIGHTS: Record<string, number> = { little_or_none: 0, mild: 0.5, severe: 1 };
+                    const w = WEIGHTS[data.severity_label] ?? 0;
+                    postSeverityRef.current.push({ cluster: cid, weight: w });
+                    if (!clusterSeverityRef.current[cid]) clusterSeverityRef.current[cid] = [];
+                    clusterSeverityRef.current[cid].push(w);
+
+                    const arr = clusterSeverityRef.current[cid];
+                    const avg = arr.reduce((a, b) => a + b, 0) / arr.length;
+                    const severity = avg < 0.33 ? 'little_or_none' : avg < 0.66 ? 'mild' : 'severe';
+
+                    const updated = { ...clustersRef.current };
+                    if (updated[cid]) {
+                        updated[cid] = { ...updated[cid], combined_severity: severity };
+                        clustersRef.current = updated;
+                        setClusters(updated);
+                    }
+                }
+
+                // If this is the last progress event, treat as done
+                if (data.current >= data.total) {
+                    es.close();
+                    dripTargetRef.current = allPostsRef.current.length;
+                    inferDoneRef.current = true;
+                }
             }
 
             if (data.type === 'done') {
                 es.close();
-
-                // Merge severity into clusters
-                const updatedClusters = { ...clustersRef.current };
-                Object.entries(data.cluster_scores).forEach(([id, scores]: [string, any]) => {
-                    if (updatedClusters[id]) {
-                        updatedClusters[id] = { ...updatedClusters[id], combined_severity: scores.combined_severity };
-                    }
-                });
-                setClusters(updatedClusters);
-                clustersRef.current = updatedClusters;
-
-                startDrip(allPostsRef.current);
+                dripTargetRef.current = allPostsRef.current.length;
+                inferDoneRef.current = true;
             }
         };
 
         es.onerror = () => {
             console.error('SSE error');
-            setPhase('idle');
+            // If all progress was received, treat as done rather than resetting
+            if (dripTargetRef.current >= allPostsRef.current.length) {
+                inferDoneRef.current = true;
+            } else {
+                if (intervalRef.current) clearInterval(intervalRef.current);
+                setPhase('idle');
+            }
             es.close();
         };
     };
+
+    const recomputeSeverity = (n: number) => {
+        const SEVERITY_LABELS = ['little_or_none', 'mild', 'severe'] as const;
+        const accum: Record<string, number[]> = {};
+        for (let i = 0; i < n && i < postSeverityRef.current.length; i++) {
+            const { cluster, weight } = postSeverityRef.current[i];
+            if (!accum[cluster]) accum[cluster] = [];
+            accum[cluster].push(weight);
+        }
+        const updated = { ...clustersRef.current };
+        for (const [cid, meta] of Object.entries(updated)) {
+            if (accum[cid]) {
+                const avg = accum[cid].reduce((a, b) => a + b, 0) / accum[cid].length;
+                const sev = avg < 0.33 ? SEVERITY_LABELS[0] : avg < 0.66 ? SEVERITY_LABELS[1] : SEVERITY_LABELS[2];
+                updated[cid] = { ...meta, combined_severity: sev };
+            } else {
+                updated[cid] = { ...meta, combined_severity: undefined };
+            }
+        }
+        clustersRef.current = updated;
+        setClusters(updated);
+    };
+
+    const handleSlider = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const val = parseInt(e.target.value);
+        setSliderValue(val);
+        setVisiblePosts(allPostsRef.current.slice(0, val));
+        recomputeSeverity(val);
+    };
+
+    const handleFocusCluster = useCallback((cid: string | null) => {
+        setFocusedCluster(cid);
+        if (cid && clusters[cid]) {
+            setFlyTarget(clusters[cid].centroid);
+        } else {
+            setFlyTarget(null);
+        }
+    }, [clusters]);
+
 
     const statusText = {
         idle: 'Ready',
         predicting: `Analyzing... ${progress} / ${total}`,
         animating: `Plotting... ${visiblePosts.length} / ${total}`,
-        done: `✓ Done — ${visiblePosts.length} posts`,
+        done: `${visiblePosts.length} / ${total} posts`,
     }[phase];
 
     const buttonText = {
@@ -119,8 +277,25 @@ const Map = () => {
         <div style={{ height: '100vh', width: '100%', position: 'relative' }}>
             <MapContainer center={[18.45, -66.07]} zoom={9} style={{ height: '100%', width: '100%' }}>
                 <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}" />
-                <PostMarkers posts={visiblePosts} clusters={clusters} />
+                <PostMarkers posts={visiblePosts} clusters={clusters} analyzedPosts={analyzedPosts} onPostClick={(post) => {
+                    if (phase !== 'done') return;
+                    const cid = String(post.cluster);
+                    if (cid === '-1') return;
+                    handleFocusCluster(cid);
+                }} />
+                <MapEventHandler clusters={clusters} phase={phase} onFocusCluster={setFocusedCluster} suppressRef={flyingSuppressRef} />
+                <MapFlyTo target={flyTarget} suppressRef={flyingSuppressRef} />
             </MapContainer>
+
+            {/* Analysis widgets — left side, fades in when done */}
+            <AnalysisSidebar
+                clusters={clusters}
+                analyzedPosts={analyzedPosts}
+                phase={phase}
+                sliderValue={sliderValue}
+                focusedCluster={focusedCluster}
+                onFocusCluster={handleFocusCluster}
+            />
 
             <div style={{
                 position: 'absolute', bottom: 32, left: '50%', transform: 'translateX(-50%)',
@@ -174,6 +349,18 @@ const Map = () => {
                 </div>
 
                 <div style={{ fontSize: 11, color: '#888' }}>{statusText}</div>
+
+                {/* Timeline slider — visible after analysis */}
+                {phase === 'done' && total > 0 && (
+                    <input
+                        type="range"
+                        min={0}
+                        max={total}
+                        value={sliderValue}
+                        onChange={handleSlider}
+                        style={{ width: '100%', accentColor: '#6c63ff', cursor: 'pointer' }}
+                    />
+                )}
 
                 <button
                     onClick={handleRun}

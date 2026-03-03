@@ -1,0 +1,548 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{titlesec}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!70!black,
+    urlcolor=blue!70!black,
+    citecolor=blue!70!black,
+}
+
+\lstset{
+    basicstyle=\ttfamily\small,
+    backgroundcolor=\color{gray!8},
+    frame=single,
+    framerule=0.4pt,
+    rulecolor=\color{gray!40},
+    breaklines=true,
+    showstringspaces=false,
+    keywordstyle=\color{blue!70!black}\bfseries,
+    commentstyle=\color{green!50!black},
+    stringstyle=\color{red!60!black},
+    columns=flexible,
+    xleftmargin=1em,
+    framexleftmargin=0.5em,
+}
+
+\title{\textbf{ResNet: Post-Crisis Resource Allocation System} \\[0.5em]
+\large Technical Documentation}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+% ============================================================================
+\section{How to Run}
+% ============================================================================
+
+\subsection{Prerequisites}
+
+\begin{itemize}
+    \item Python 3.10 or higher
+    \item Node.js 18 or higher
+    \item (Optional) CUDA-capable GPU or Apple Silicon for accelerated inference
+    \item (Optional) OpenAI API key for generating pseudo-labels with GPT-4o
+\end{itemize}
+
+\subsection{Installation}
+
+Install Python dependencies:
+\begin{lstlisting}[language=bash]
+pip install -r requirements.txt
+\end{lstlisting}
+
+Install frontend dependencies:
+\begin{lstlisting}[language=bash]
+cd resnet
+npm install
+\end{lstlisting}
+
+\subsection{Running the Demo Application}
+
+Start the Flask backend API server:
+\begin{lstlisting}[language=bash]
+python demo_backend.py --sample 500 --model checkpoints/model.pt --port 8000
+\end{lstlisting}
+
+In a separate terminal, start the React frontend dev server:
+\begin{lstlisting}[language=bash]
+cd resnet
+npm run dev
+\end{lstlisting}
+
+Open \texttt{http://localhost:5173} in a browser. Click \textbf{Run} to begin the analysis pipeline.
+
+\subsubsection{Backend CLI Options}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Flag} & \textbf{Default} & \textbf{Description} \\
+\midrule
+\texttt{--sample} & 500 & Number of posts to load \\
+\texttt{--model} & \texttt{checkpoints/model.pt} & Path to trained model checkpoint \\
+\texttt{--tsv} & \texttt{CrisisMMD\_v2.0/annotations/...} & Path to CrisisMMD TSV file \\
+\texttt{--image-dir} & \texttt{hurricane\_maria} & Directory containing crisis images \\
+\texttt{--port} & 8000 & Port for the Flask server \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Training a New Model}
+
+The full training pipeline consists of three steps:
+
+\begin{enumerate}
+    \item \textbf{Prepare data} from CrisisMMD:
+\begin{lstlisting}[language=bash]
+python prepare_data.py --crisismmd CrisisMMD_v2.0 \
+    --output data/posts.csv --sample 1000
+\end{lstlisting}
+
+    \item \textbf{Generate pseudo-labels} using GPT-4o (requires \texttt{OPENAI\_API\_KEY} in \texttt{.env}):
+\begin{lstlisting}[language=bash]
+python generate_labels.py --data-dir CrisisMMD_v2.0 \
+    --csv data/posts.csv --output data/labels.json
+\end{lstlisting}
+
+    \item \textbf{Train the classifier}:
+\begin{lstlisting}[language=bash]
+python train.py --labels data/labels.json \
+    --data-dir CrisisMMD_v2.0 --epochs 200 \
+    --output checkpoints/model.pt
+\end{lstlisting}
+\end{enumerate}
+
+Training produces loss curves and MAE plots in \texttt{checkpoints/plots/}.
+
+\subsection{Building the Frontend for Production}
+
+\begin{lstlisting}[language=bash]
+cd resnet
+npm run build      # Output to dist/
+npm run preview    # Preview the production build
+\end{lstlisting}
+
+% ============================================================================
+\newpage
+\section{Key Innovations}
+% ============================================================================
+
+\subsection{GPT-4o Pseudo-Labeling Pipeline}
+
+Traditional crisis datasets require expensive manual annotation. This system uses GPT-4o (via OpenAI API) to generate continuous resource need scores from crisis images and captions automatically.
+
+The labeling prompt provides:
+\begin{itemize}
+    \item A continuous scoring scale (0.00--1.00) with explicit guidelines to use the full range and avoid binary rounding.
+    \item Detailed category definitions for all five resource types.
+    \item Six worked examples showing realistic multi-category scoring for different crisis scenarios.
+\end{itemize}
+
+Each image is base64-encoded and sent alongside its caption. The script supports incremental progress saving---if interrupted, it resumes from the last labeled sample.
+
+\subsection{Multimodal CLIP Feature Fusion}
+
+Rather than using image or text features alone, the system concatenates both modalities from CLIP ViT-B/32 into a single 1024-dimensional feature vector:
+
+\[
+\mathbf{f} = [\text{CLIP}_{\text{image}}(\mathbf{x}) \,\|\, \text{CLIP}_{\text{text}}(c)] \in \mathbb{R}^{1024}
+\]
+
+where $\mathbf{x}$ is the crisis image and $c$ is the social media caption. Both embeddings are L2-normalized before concatenation. This captures visual damage information (collapsed structures, flooding) alongside textual context (requests for help, descriptions of conditions) that may not be visible in the image.
+
+\subsection{Real-Time Server-Sent Events (SSE) Streaming}
+
+The inference API uses Server-Sent Events to stream per-post predictions to the frontend in real time, rather than waiting for all posts to be processed. This enables:
+\begin{itemize}
+    \item Live progress tracking with a progress bar.
+    \item Incremental marker animation on the map as each post is analyzed.
+    \item Dynamic severity recomputation at the cluster level as new data arrives.
+\end{itemize}
+
+\subsection{Interactive Timeline Replay}
+
+After analysis, a slider control allows scrubbing through posts chronologically. Moving the slider recomputes cluster-level severity on the fly using only the posts up to the selected point, visualizing how resource demands evolve as a disaster unfolds.
+
+\subsection{Population-Weighted Geographic Simulation}
+
+For the Hurricane Maria demo, posts are assigned coordinates using population-weighted clustering across Puerto Rico's major cities. A ray-casting point-in-polygon algorithm ensures all generated coordinates fall within the island's coastline, producing realistic geographic distributions.
+
+% ============================================================================
+\newpage
+\section{System Architecture}
+% ============================================================================
+
+\subsection{Overview}
+
+The system consists of four major components:
+
+\begin{enumerate}
+    \item \textbf{Data Preparation}: CrisisMMD dataset parsing, GPT-4o pseudo-labeling.
+    \item \textbf{Training Pipeline}: CLIP feature encoding, ResourceClassifier training.
+    \item \textbf{Backend API}: Flask REST server with SSE streaming for real-time inference.
+    \item \textbf{Frontend}: React + TypeScript interactive map with Leaflet.
+\end{enumerate}
+
+\subsection{Data Flow}
+
+\begin{verbatim}
+CrisisMMD TSV annotations
+        |  prepare_data.py
+        v
+CSV (image_path, caption, timestamp)
+        |  generate_labels.py (GPT-4o)
+        v
+JSON labels (image_path, caption, {infrastructure: 0.XX, ...})
+        |  train.py (CLIP encoding + MLP training)
+        v
+Trained model checkpoint (model.pt)
+        |  demo_backend.py
+        v
+Flask API (REST + SSE) --> React Frontend (Leaflet map)
+\end{verbatim}
+
+% ============================================================================
+\newpage
+\section{Model Architecture}
+% ============================================================================
+
+\subsection{CLIP Encoder}
+
+The system uses OpenAI's CLIP ViT-B/32 model (loaded via HuggingFace Transformers) as a frozen feature extractor. No CLIP parameters are fine-tuned during training.
+
+\begin{itemize}
+    \item \textbf{Image encoding}: Input image $\rightarrow$ ViT-B/32 $\rightarrow$ 512-dim L2-normalized embedding.
+    \item \textbf{Text encoding}: Input caption $\rightarrow$ CLIP text encoder $\rightarrow$ 512-dim L2-normalized embedding (truncated to 77 tokens).
+    \item \textbf{Feature fusion}: Concatenation $\rightarrow$ 1024-dim feature vector.
+\end{itemize}
+
+\subsection{ResourceClassifier}
+
+A multi-layer perceptron (MLP) that maps 1024-dim CLIP features to five resource need scores:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Layer} & \textbf{Dimensions} & \textbf{Activation} \\
+\midrule
+Linear + ReLU + Dropout(0.3) & $1024 \rightarrow 512$ & ReLU \\
+Linear + ReLU + Dropout(0.3) & $512 \rightarrow 256$ & ReLU \\
+Linear + Sigmoid & $256 \rightarrow 5$ & Sigmoid \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Output categories (each in $[0, 1]$):
+\begin{enumerate}
+    \item \textbf{Infrastructure}: Roads, bridges, buildings, power lines, utilities.
+    \item \textbf{Food}: Hunger, food shortages, supply disruption.
+    \item \textbf{Shelter}: Displacement, destroyed housing, homelessness.
+    \item \textbf{Sanitation \& Water}: Contaminated water, flooding, sewage.
+    \item \textbf{Medication}: Injuries, hospital damage, medical supply needs.
+\end{enumerate}
+
+\subsection{Training Configuration}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+Loss function & Binary Cross-Entropy (BCE) \\
+Optimizer & Adam ($\text{lr} = 10^{-3}$, weight decay $= 10^{-3}$) \\
+LR scheduler & ReduceLROnPlateau (factor $= 0.5$, patience $= 7$) \\
+Early stopping & Patience $= 20$ epochs on validation loss \\
+Batch size & 32 \\
+Max epochs & 200 \\
+Train/Val split & 80\%/20\% \\
+Evaluation metric & Per-category MAE + overall MAE \\
+Feature caching & CLIP embeddings cached to \texttt{cached\_features.pt} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The training script generates four plots:
+\begin{itemize}
+    \item Training vs.\ validation loss curve
+    \item Overall validation MAE curve
+    \item Per-category validation MAE curves
+    \item Final per-category MAE bar chart
+\end{itemize}
+
+% ============================================================================
+\newpage
+\section{Spatial Clustering}
+% ============================================================================
+
+\subsection{DBSCAN Algorithm}
+
+Geographic clustering uses DBSCAN (Density-Based Spatial Clustering of Applications with Noise) on latitude/longitude coordinates:
+
+\begin{itemize}
+    \item \textbf{Training/inference pipeline} (\texttt{clustering.py}): $\varepsilon = 0.01$ (approximately 1\,km), \texttt{min\_samples} $= 2$.
+    \item \textbf{Demo backend} (\texttt{demo\_backend.py}): $\varepsilon = 0.15$ (larger radius for the Hurricane Maria demo), \texttt{min\_samples} $= 3$.
+\end{itemize}
+
+Noise points (DBSCAN label $= -1$) are discarded from cluster aggregation but still displayed on the map.
+
+\subsection{Cluster-Level Aggregation}
+
+After per-post inference, cluster-level resource demands are computed as the arithmetic mean of all member posts' scores for each category. Severity is determined by a weighted average:
+
+\[
+\text{weighted\_severity} = \frac{1}{|C|} \sum_{p \in C} w(s_p), \quad
+w(s) = \begin{cases}
+0.1 & s = \text{little\_or\_none} \\
+0.3 & s = \text{mild} \\
+1.0 & s = \text{severe}
+\end{cases}
+\]
+
+The combined severity label is then assigned:
+\begin{itemize}
+    \item $< 0.20$: \texttt{little\_or\_none}
+    \item $0.20$--$0.30$: \texttt{mild}
+    \item $> 0.30$: \texttt{severe}
+\end{itemize}
+
+% ============================================================================
+\newpage
+\section{Backend API}
+% ============================================================================
+
+\subsection{Endpoints}
+
+The Flask backend (\texttt{demo\_backend.py}) exposes the following endpoints:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Method} & \textbf{Path} & \textbf{Description} \\
+\midrule
+GET & \texttt{/} & Serve frontend HTML \\
+GET & \texttt{/api/posts} & Return all posts with DBSCAN cluster labels \\
+GET & \texttt{/api/predict} & SSE stream: CLIP encoding + model inference \\
+GET & \texttt{/images/<path>} & Serve crisis images from the image directory \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{\texttt{GET /api/posts} Response}
+
+Returns a JSON object containing:
+\begin{itemize}
+    \item \texttt{posts}: Array of post objects, each with \texttt{lat}, \texttt{lon}, \texttt{caption}, \texttt{timestamp}, \texttt{date}, \texttt{image} (URL), and \texttt{cluster} label.
+    \item \texttt{categories}: List of the five resource category names.
+    \item \texttt{clusters}: Map from cluster ID to metadata (name of nearest city, centroid coordinates, member count).
+\end{itemize}
+
+\subsection{\texttt{GET /api/predict} SSE Stream}
+
+Streams two types of events:
+
+\begin{enumerate}
+    \item \textbf{Progress events}: Sent after each post is processed.
+\begin{lstlisting}
+data: {"type": "progress", "current": 42, "total": 500,
+       "cluster": 3, "severity_label": "mild",
+       "scores": {"infrastructure": 0.72, ...}}
+\end{lstlisting}
+
+    \item \textbf{Done event}: Sent after all posts are processed.
+\begin{lstlisting}
+data: {"type": "done",
+       "cluster_scores": {"0": {"infrastructure": 0.75,
+            "weighted_severity": 0.403,
+            "combined_severity": "mild", ...}, ...}}
+\end{lstlisting}
+\end{enumerate}
+
+\subsection{Coordinate Assignment}
+
+For the Hurricane Maria demo, posts are assigned synthetic coordinates based on population-weighted cluster centers across eight Puerto Rico cities. A hash of each tweet's ID deterministically maps it to a city, with Gaussian jitter constrained to fall within a simplified polygon of Puerto Rico's coastline (30 vertices, ray-casting point-in-polygon test).
+
+% ============================================================================
+\newpage
+\section{Frontend}
+% ============================================================================
+
+\subsection{Technology Stack}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Library} & \textbf{Purpose} \\
+\midrule
+React 19 & UI framework \\
+TypeScript 5.9 & Type safety \\
+Vite 7 & Build tool and dev server \\
+Leaflet + react-leaflet & Interactive map rendering \\
+Zustand & Lightweight state management \\
+Tailwind CSS 4 & Utility-first styling \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{User Interface}
+
+The frontend displays a dark-themed Leaflet map (ArcGIS World Dark Gray basemap) centered on Puerto Rico. Key UI elements:
+
+\begin{itemize}
+    \item \textbf{Post markers}: Color-coded circles by severity---green (little/none), yellow (mild), red (severe)---with CSS glow effects for visual emphasis.
+    \item \textbf{Control panel}: Bottom-center overlay with a three-step phase indicator (Collect + Cluster $\rightarrow$ CLIP + Model $\rightarrow$ Results), progress bar, status text, and run button.
+    \item \textbf{Timeline slider}: Appears after analysis; scrubs through posts chronologically with on-the-fly severity recomputation.
+    \item \textbf{Cluster popup modal}: Clicking a cluster marker opens a detail panel showing averaged resource demands and individual posts with their scores, sortable by severity or category.
+\end{itemize}
+
+\subsection{Real-Time Animation}
+
+Posts appear on the map via a drip-feed animation system:
+\begin{itemize}
+    \item An interval timer adds \texttt{POSTS\_PER\_TICK} (5) posts every \texttt{INTERVAL\_MS} (20\,ms).
+    \item The drip target advances as SSE progress events arrive from the backend.
+    \item Cluster severity colors update dynamically as new posts are assigned.
+\end{itemize}
+
+\subsection{Vite Proxy Configuration}
+
+The Vite dev server proxies \texttt{/api/*} and \texttt{/images/*} requests to the Flask backend on port 8000, with SSE buffering disabled to ensure real-time event streaming.
+
+% ============================================================================
+\newpage
+\section{Data Pipeline}
+% ============================================================================
+
+\subsection{CrisisMMD Dataset}
+
+The system uses the CrisisMMD v2.0 dataset, a multimodal crisis dataset containing social media posts from seven major 2017 disasters:
+
+\begin{enumerate}
+    \item Hurricane Harvey
+    \item Hurricane Irma
+    \item Hurricane Maria
+    \item Mexico Earthquake
+    \item Iraq-Iran Earthquake
+    \item California Wildfires
+    \item Sri Lanka Floods
+\end{enumerate}
+
+Each TSV annotation file contains columns including \texttt{tweet\_id}, \texttt{image\_path}, \texttt{tweet\_text}, \texttt{humanitarian\_category}, and \texttt{damage\_severity}.
+
+\subsection{\texttt{prepare\_data.py}}
+
+Converts CrisisMMD TSV annotations into a simplified CSV format with columns: \texttt{image\_path}, \texttt{caption}, \texttt{timestamp}. Timestamps are extracted from Twitter snowflake IDs. Supports random sampling with a fixed seed for reproducibility.
+
+\subsection{\texttt{generate\_labels.py}}
+
+For each image--caption pair, sends a base64-encoded image and structured prompt to GPT-4o-mini, receiving back a JSON object with five continuous scores. Key design decisions:
+\begin{itemize}
+    \item Scores are continuous in $[0, 1]$ rather than binary, enabling regression training.
+    \item The prompt explicitly discourages binary rounding (0 or 1) to encourage nuanced scoring.
+    \item Progress is saved after every sample for fault tolerance.
+    \item A configurable delay between API calls prevents rate limiting.
+\end{itemize}
+
+\subsection{Feature Caching}
+
+During training, CLIP encodings are computed once and cached to \texttt{data/cached\_features.pt}. Subsequent training runs load features from cache, skipping the expensive CLIP forward pass.
+
+% ============================================================================
+\newpage
+\section{Dependencies}
+% ============================================================================
+
+\subsection{Python}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Package} & \textbf{Purpose} \\
+\midrule
+\texttt{torch}, \texttt{torchvision} & Neural network training and inference \\
+\texttt{transformers} & CLIP ViT-B/32 model loading \\
+\texttt{Pillow} & Image loading and preprocessing \\
+\texttt{scikit-learn} & DBSCAN clustering \\
+\texttt{numpy} & Numerical operations \\
+\texttt{openai} & GPT-4o API for pseudo-labeling \\
+\texttt{python-dotenv} & Environment variable loading \\
+\texttt{matplotlib} & Training metric plots \\
+\texttt{flask} & REST API server \\
+\texttt{flask-cors} & Cross-origin request support \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Node.js / Frontend}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Package} & \textbf{Purpose} \\
+\midrule
+\texttt{react}, \texttt{react-dom} (19.x) & UI framework \\
+\texttt{react-leaflet}, \texttt{leaflet} & Map rendering \\
+\texttt{zustand} (5.x) & State management \\
+\texttt{@tanstack/react-query} (5.x) & Data fetching \\
+\texttt{react-router-dom} (7.x) & Client-side routing \\
+\texttt{vite} (7.x) & Build tool \\
+\texttt{typescript} (5.9) & Type checking \\
+\texttt{tailwindcss} (4.x) & Utility CSS \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ============================================================================
+\newpage
+\section{File Reference}
+% ============================================================================
+
+\begin{table}[H]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{File} & \textbf{Purpose} \\
+\midrule
+\texttt{model.py} & ResourceClassifier MLP definition \\
+\texttt{encoder.py} & CLIPEncoder wrapper (image + text + cluster encoding) \\
+\texttt{train.py} & Training loop with early stopping, LR scheduling, plots \\
+\texttt{clustering.py} & DBSCAN spatial clustering with Cluster dataclass \\
+\texttt{data\_collector.py} & Post and Call dataclass definitions \\
+\texttt{prepare\_data.py} & CrisisMMD TSV $\rightarrow$ CSV converter \\
+\texttt{generate\_labels.py} & GPT-4o pseudo-label generator \\
+\texttt{demo\_backend.py} & Flask API server with SSE streaming \\
+\texttt{main.py} & Standalone inference demo script \\
+\texttt{requirements.txt} & Python dependency list \\
+\midrule
+\texttt{resnet/src/components/map/Map.tsx} & Main map view with inference orchestration \\
+\texttt{resnet/src/components/map/cluster.tsx} & Post markers with severity glow effects \\
+\texttt{resnet/src/components/map/ClusterPopup.tsx} & Cluster detail modal \\
+\texttt{resnet/src/types/post.ts} & Post and AnalyzedPost TypeScript interfaces \\
+\texttt{resnet/src/types/cluster.ts} & Cluster TypeScript interface \\
+\texttt{resnet/vite.config.ts} & Vite dev server with API proxy configuration \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\end{document}
