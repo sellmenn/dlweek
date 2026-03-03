@@ -44,6 +44,17 @@ Response Formats:
         Final event:
             data: {
                 "type": "done",
+                "posts": [
+                    {
+                        "lat": 18.45, "lon": -66.07, "caption": "...",
+                        "timestamp": 1506000000.0, "date": "2017-09-21 12:00",
+                        "image": "/images/25_9_2017/901646074527535105_0.jpg",
+                        "cluster": 0,
+                        "infrastructure": 0.82, "food": 0.15, "shelter": 0.63,
+                        "sanitation_water": 0.41, "medication": 0.09,
+                        "severity_score": 0.5, "severity_label": "mild"
+                    }, ...
+                ],
                 "post_scores": [{"infrastructure": 0.82, ...}, ...],
                 "cluster_scores": {"0": {"infrastructure": 0.75, "weighted_severity": 0.403, "combined_severity": "mild", ...}, ...}
             }
@@ -58,19 +69,23 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-
 import numpy as np
 from flask import Flask, jsonify, Response, send_from_directory, send_file
 from sklearn.cluster import DBSCAN
 import torch
 
+from PIL import Image
+from transformers import ViTForImageClassification, ViTImageProcessor
+
 from encoder import CLIPEncoder
 from model import RESOURCE_CATEGORIES, load_model
 
 from flask_cors import CORS
-
 app = Flask(__name__)
-CORS(app, supports_credentials=True)
+CORS(app)
+
+SEVERITY_LABELS = ["little_or_none", "mild", "severe"]
+SEVERITY_WEIGHTS = {"little_or_none": 0.0, "mild": 0.5, "severe": 1.0}
 
 # ── Twitter snowflake helpers ─────────────────────────────────────────────────
 
@@ -199,12 +214,13 @@ def nearest_city(lat, lon):
 POSTS = []
 ENCODER = None
 MODEL = None
+SEVERITY_MODEL = None
+SEVERITY_PROCESSOR = None
 DEVICE = "cpu"
 IMAGE_DIR = "hurricane_maria"
 CLUSTER_META = {}
 
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "demo_output")
-
 
 # ── DBSCAN ────────────────────────────────────────────────────────────────────
 
@@ -307,7 +323,7 @@ def api_predict():
     def generate():
         total = len(POSTS)
         MODEL.eval()
-        rng = np.random.RandomState(42)
+        SEVERITY_MODEL.eval()
 
         for i, post in enumerate(POSTS):
             img_emb = ENCODER.encode_image(post["image_path"])
@@ -319,21 +335,25 @@ def api_predict():
 
             post["resource_scores"] = {cat: round(float(scores[j]), 4) for j, cat in enumerate(RESOURCE_CATEGORIES)}
 
-            # Placeholder severity (random) — will be replaced by a real severity model
-            severity_score = rng.random()
-            if severity_score < 0.33:
-                severity_label = "little_or_none"
-            elif severity_score < 0.66:
-                severity_label = "mild"
-            else:
-                severity_label = "severe"
-            post["severity_score"] = round(float(severity_score), 4)
+            # Severity classification via fine-tuned ViT
+            image = Image.open(post["image_path"]).convert("RGB")
+            inputs = SEVERITY_PROCESSOR(images=image, return_tensors="pt").to(DEVICE)
+            with torch.no_grad():
+                logits = SEVERITY_MODEL(**inputs).logits
+                probs = torch.softmax(logits, dim=-1).squeeze(0).cpu().numpy()
+            severity_idx = int(np.argmax(probs))
+            severity_label = SEVERITY_LABELS[severity_idx]
+            severity_score = float(SEVERITY_WEIGHTS[severity_label])
+            post["severity_score"] = round(severity_score, 4)
             post["severity_label"] = severity_label
 
-            yield f"data: {json.dumps({'type': 'progress', 'current': i + 1, 'total': total})}\n\n"
+            ts = post["timestamp"]
+            date_str = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M") if ts > 0 else "N/A"
+            img_rel = post["image_path"]
+            if "hurricane_maria/" in img_rel:
+                img_rel = img_rel.split("hurricane_maria/", 1)[1]
 
-        # Per-cluster averaged scores + severity
-        SEVERITY_WEIGHTS = {"little_or_none": 0.0, "mild": 0.5, "severe": 1.0}
+            yield f"data: {json.dumps({'type': 'progress', 'current': i + 1, 'total': total, 'post': {'lat': round(post['latitude'], 6), 'lon': round(post['longitude'], 6), 'caption': post['caption'], 'timestamp': ts, 'date': date_str, 'image': f'/images/{img_rel}', 'cluster': post.get('cluster_label', -1), **post['resource_scores'], 'severity_score': post['severity_score'], 'severity_label': post['severity_label']}})}\n\n"
         cluster_ids = sorted(set(p.get("cluster_label", -1) for p in POSTS if p.get("cluster_label", -1) != -1))
         cluster_scores = {}
         for cid in cluster_ids:
@@ -355,13 +375,30 @@ def api_predict():
             cluster_scores[str(cid)] = avg
 
         post_scores = []
+        posts_out = []
         for p in POSTS:
             ps = p.get("resource_scores", {cat: 0 for cat in RESOURCE_CATEGORIES})
             ps["severity_score"] = p.get("severity_score", 0)
             ps["severity_label"] = p.get("severity_label", "little_or_none")
             post_scores.append(ps)
 
-        yield f"data: {json.dumps({'type': 'done', 'post_scores': post_scores, 'cluster_scores': cluster_scores})}\n\n"
+            ts = p["timestamp"]
+            date_str = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M") if ts > 0 else "N/A"
+            img_rel = p["image_path"]
+            if "hurricane_maria/" in img_rel:
+                img_rel = img_rel.split("hurricane_maria/", 1)[1]
+            posts_out.append({
+                "lat": round(p["latitude"], 6),
+                "lon": round(p["longitude"], 6),
+                "caption": p["caption"],
+                "timestamp": ts,
+                "date": date_str,
+                "image": f"/images/{img_rel}",
+                "cluster": p.get("cluster_label", -1),
+                **ps,
+            })
+
+        yield f"data: {json.dumps({'type': 'done', 'posts': posts_out, 'post_scores': post_scores, 'cluster_scores': cluster_scores})}\n\n"
 
     return Response(generate(), mimetype="text/event-stream")
 
@@ -377,7 +414,7 @@ def main():
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
 
-    global POSTS, ENCODER, MODEL, DEVICE, IMAGE_DIR
+    global POSTS, ENCODER, MODEL, SEVERITY_MODEL, SEVERITY_PROCESSOR, DEVICE, IMAGE_DIR
 
     DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
     print(f"Device: {DEVICE}")
@@ -396,6 +433,12 @@ def main():
 
     print("Loading trained model...")
     MODEL = load_model(args.model, device=DEVICE)
+
+    print("Loading severity model...")
+    severity_path = os.path.abspath(os.path.join(os.path.dirname(args.model), "vit-crisis-damage-final"))
+    SEVERITY_MODEL = ViTForImageClassification.from_pretrained(severity_path).to(DEVICE)
+    SEVERITY_PROCESSOR = ViTImageProcessor.from_pretrained(severity_path)
+    SEVERITY_MODEL.eval()
 
     print(f"\nServer starting on http://localhost:{args.port}")
     app.run(host="0.0.0.0", port=args.port, debug=False, threaded=True)
