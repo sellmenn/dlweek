@@ -24,9 +24,9 @@ const makeGlowIcon = (color: string) => L.divIcon({
 })
 
 const GLOW_ICONS = {
-  high:   makeGlowIcon('#ef4444'),
-  medium: makeGlowIcon('#f59e0b'),
-  low:    makeGlowIcon('#22c55e'),
+  severe:         makeGlowIcon('#ef4444'),
+  mild:           makeGlowIcon('#f59e0b'),
+  little_or_none: makeGlowIcon('#22c55e'),
 }
 
 export default function PostMarkers({ posts, clusters }: Props) {
