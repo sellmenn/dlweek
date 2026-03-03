@@ -1,6 +1,9 @@
 export interface Post {
-  id: string;
-  location: { lat: number; lng: number };
-  desc: string;
-  img_url: string;
+  lat: number;
+  lon: number;
+  caption: string;
+  cluster: 0;
+  image: string;
+  date: string;
+  timestamp: string;
 }
