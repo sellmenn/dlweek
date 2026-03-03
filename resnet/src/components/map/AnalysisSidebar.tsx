@@ -1,17 +1,22 @@
 import { useMemo } from 'react'
 import type { AnalyzedPost } from '../../types/post'
 import type { Cluster } from '../../types/cluster'
-import { GlassCard } from '../widgets/glassCard'
-import { CategoryScoreBar, type Category, type CategoryScores } from '../widgets/inferenceWidgets'
-import { PostScoreRow } from '../widgets/inferenceWidgets'
+import type { Category, CategoryScores } from '../widgets/inferenceWidgets'
 
 const CATEGORIES: Category[] = ['infrastructure', 'food', 'shelter', 'sanitation_water', 'medication']
 const CATEGORY_LABELS: Record<Category, string> = {
   infrastructure: 'Infrastructure',
   food: 'Food',
   shelter: 'Shelter',
-  sanitation_water: 'Water / Sanitation',
+  sanitation_water: 'Water & Sanitation',
   medication: 'Medication',
+}
+const CATEGORY_COLORS: Record<Category, string> = {
+  infrastructure: '#60a5fa',
+  food: '#fbbf24',
+  shelter: '#34d399',
+  sanitation_water: '#22d3ee',
+  medication: '#a78bfa',
 }
 const SEV_ORDER = ['severe', 'mild', 'little_or_none'] as const
 const SEV_COLORS: Record<string, string> = {
@@ -25,6 +30,64 @@ const SEV_LABELS: Record<string, string> = {
   little_or_none: 'Low',
 }
 
+const PEOPLE_PER_POST = 15
+
+const card: React.CSSProperties = {
+  background: 'rgba(13, 15, 23, 0.85)',
+  backdropFilter: 'blur(24px)',
+  WebkitBackdropFilter: 'blur(24px)',
+  border: '1px solid rgba(255,255,255,0.06)',
+  borderRadius: 14,
+  color: 'white',
+  padding: '14px 18px',
+}
+
+function formatElapsed(startMs: number): string {
+  if (!startMs) return '—'
+  const diffSec = Math.max(0, (Date.now() - startMs) / 1000)
+  const mins = Math.floor(diffSec / 60)
+  const secs = Math.floor(diffSec % 60)
+  if (mins > 0) return `${mins}m ${secs}s`
+  return `${secs}s`
+}
+
+function timeSpan(posts: AnalyzedPost[]): string {
+  if (posts.length < 2) return '—'
+  const timestamps = posts.map(p => p.timestamp)
+  const diffSec = Math.max(...timestamps) - Math.min(...timestamps)
+  const days = Math.floor(diffSec / 86400)
+  const hours = Math.floor((diffSec % 86400) / 3600)
+  if (days > 0) return `${days}d ${hours}h`
+  if (hours > 0) return `${hours}h`
+  return '<1h'
+}
+
+function avgSeverityScore(posts: AnalyzedPost[]): number {
+  if (posts.length === 0) return 0
+  const W: Record<string, number> = { little_or_none: 0, mild: 0.5, severe: 1 }
+  return posts.reduce((acc, p) => acc + (W[p.severity_label] ?? 0), 0) / posts.length
+}
+
+const STAT_H = 76 // fixed height for stat widgets
+
+/** A single stat widget: big number + label */
+function StatWidget({ value, label, color, style }: {
+  value: string | number; label: string; color?: string; style: React.CSSProperties
+}) {
+  return (
+    <div style={style}>
+      <div style={{ ...card, height: STAT_H, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+        <div style={{ fontSize: 24, fontWeight: 700, lineHeight: 1, letterSpacing: '-0.02em', color: color ?? 'white' }}>
+          {value}
+        </div>
+        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 6, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+          {label}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 interface Props {
   clusters: Record<string, Cluster>
   analyzedPosts: AnalyzedPost[]
@@ -32,30 +95,12 @@ interface Props {
   sliderValue: number
   focusedCluster: string | null
   onFocusCluster: (cid: string | null) => void
-}
-
-function SeverityBar({ counts, total }: { counts: Record<string, number>; total: number }) {
-  if (total === 0) return null
-  return (
-    <div className="flex h-2.5 w-full rounded-full overflow-hidden bg-white/5">
-      {SEV_ORDER.map(sev => {
-        const pct = ((counts[sev] ?? 0) / total) * 100
-        if (pct === 0) return null
-        return (
-          <div
-            key={sev}
-            className="h-full transition-all duration-500"
-            style={{ width: `${pct}%`, background: SEV_COLORS[sev] }}
-          />
-        )
-      })}
-    </div>
-  )
+  analysisStartTime: number
 }
 
 export default function AnalysisWidgets({
   clusters, analyzedPosts, phase, sliderValue,
-  focusedCluster, onFocusCluster,
+  focusedCluster, onFocusCluster, analysisStartTime,
 }: Props) {
   const visible = phase === 'done'
   const isFocused = focusedCluster !== null
@@ -92,18 +137,13 @@ export default function AnalysisWidgets({
   // ── Global metrics ──
   const totalPosts = activePosts.length
   const clusterCount = Object.keys(postsByCluster).length
+  const globalElapsed = formatElapsed(analysisStartTime)
+  const globalPeople = totalPosts * PEOPLE_PER_POST
 
   const globalSevCounts: Record<string, number> = { severe: 0, mild: 0, little_or_none: 0 }
   for (const p of activePosts) {
     globalSevCounts[p.severity_label] = (globalSevCounts[p.severity_label] ?? 0) + 1
   }
-
-  const globalAvg = {} as CategoryScores
-  for (const cat of CATEGORIES) {
-    const vals = activePosts.map(p => p.scores[cat] ?? 0)
-    globalAvg[cat] = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0
-  }
-  const globalTopNeed = [...CATEGORIES].sort((a, b) => globalAvg[b] - globalAvg[a])[0]
 
   const sortedClusterIds = Object.keys(postsByCluster).sort((a, b) => {
     const sevOrder: Record<string, number> = { severe: 0, mild: 1, little_or_none: 2 }
@@ -112,91 +152,96 @@ export default function AnalysisWidgets({
     return (sevOrder[sa] ?? 3) - (sevOrder[sb] ?? 3)
   })
 
-  // ── Focused cluster metrics ──
+  // ── Focused metrics ──
   const focusedClusterData = focusedCluster ? clusters[focusedCluster] : null
   const focusedPosts = focusedCluster ? (postsByCluster[focusedCluster] ?? []) : []
   const focusedAvg = focusedCluster ? clusterAvgScores[focusedCluster] : null
   const focusedSev = focusedClusterData?.combined_severity ?? ''
-  const focusedTopNeed = focusedAvg
-    ? [...CATEGORIES].sort((a, b) => (focusedAvg[b] ?? 0) - (focusedAvg[a] ?? 0))[0]
-    : null
+  const focusedSevScore = avgSeverityScore(focusedPosts)
+  const focusedElapsed = formatElapsed(analysisStartTime)
+  const focusedSpan = timeSpan(focusedPosts)
+  const focusedPeople = focusedPosts.length * PEOPLE_PER_POST
 
   const focusedSevCounts: Record<string, number> = { severe: 0, mild: 0, little_or_none: 0 }
   for (const p of focusedPosts) {
     focusedSevCounts[p.severity_label] = (focusedSevCounts[p.severity_label] ?? 0) + 1
   }
 
+  const focusedRankedNeeds = focusedAvg
+    ? [...CATEGORIES].sort((a, b) => (focusedAvg[b] ?? 0) - (focusedAvg[a] ?? 0))
+    : []
+
   const sortedFocusedPosts = [...focusedPosts].sort((a, b) => {
     const W: Record<string, number> = { little_or_none: 0, mild: 0.5, severe: 1 }
     return (W[b.severity_label] ?? 0) - (W[a.severity_label] ?? 0)
   })
 
-  const showWhen = (show: boolean): React.CSSProperties => ({
-    opacity: visible && show ? 1 : 0,
-    transform: visible && show ? 'translateX(0)' : 'translateX(-16px)',
-    pointerEvents: visible && show ? 'auto' : 'none',
-    transition: 'opacity 0.35s ease, transform 0.35s ease',
-    position: 'absolute' as const,
-    left: 16,
-    width: 320,
-    zIndex: 1000,
-  })
-
-  // ── Cluster top need helper ──
   const clusterTopNeed = (cid: string) => {
     const avg = clusterAvgScores[cid]
     if (!avg) return null
     return [...CATEGORIES].sort((a, b) => (avg[b] ?? 0) - (avg[a] ?? 0))[0]
   }
 
+  // ── Positioning helpers ──
+  const W_HALF = 154 // half-width widget
+  const W_FULL = 320 // full-width widget
+  const LEFT = 16
+  const GAP = 10
+
+  const base = (show: boolean): React.CSSProperties => ({
+    position: 'absolute',
+    zIndex: 1000,
+    opacity: visible && show ? 1 : 0,
+    transform: visible && show ? 'translateY(0)' : 'translateY(-12px)',
+    pointerEvents: visible && show ? 'auto' : 'none',
+    transition: 'opacity 0.4s ease, transform 0.4s ease',
+  })
+
+  // ── Overview: consistent spacing ──
+  const O1 = 16                          // row 1: Time Elapsed | Est. Affected
+  const O2 = O1 + STAT_H + GAP          // row 2: Clusters
+  const O3 = O2 + STAT_H + GAP          // row 3: Cluster list (fills to bottom)
+
+  // ── Focused: consistent spacing ──
+  const F_HEADER_H = 78
+  const F_AID_H = 195
+  const F1 = 16                          // header
+  const F2 = F1 + F_HEADER_H + GAP      // stats row: Time | Affected | Severity
+  const F3 = F2 + STAT_H + GAP          // aid needed
+  const F4 = F3 + F_AID_H + GAP         // post list (fills to bottom)
+
   return (
     <>
       {/* ════════════ OVERVIEW ════════════ */}
 
-      {/* Widget 1: Summary Stats */}
-      <div
-        style={{ ...showWhen(!isFocused), top: 16 }}
-      >
-        <GlassCard className="p-4">
-          <p className="text-[10px] text-white/35 uppercase tracking-[2px] mb-3">Overview</p>
-          <div className="grid grid-cols-3 gap-3 mb-3">
-            <div>
-              <p className="text-2xl font-bold text-white leading-none">{totalPosts}</p>
-              <p className="text-[10px] text-white/35 mt-1">Posts</p>
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-white leading-none">{clusterCount}</p>
-              <p className="text-[10px] text-white/35 mt-1">Clusters</p>
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-white leading-none">
-                {globalTopNeed ? CATEGORY_LABELS[globalTopNeed].split('/')[0].trim().slice(0, 6) : '—'}
-              </p>
-              <p className="text-[10px] text-white/35 mt-1">Top Need</p>
-            </div>
-          </div>
-          <SeverityBar counts={globalSevCounts} total={totalPosts} />
-          <div className="flex gap-3 mt-2">
-            {SEV_ORDER.map(sev => (
-              <span key={sev} className="text-[10px] text-white/40 flex items-center gap-1.5">
-                <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: SEV_COLORS[sev] }} />
-                {globalSevCounts[sev]} {SEV_LABELS[sev]}
-              </span>
-            ))}
-          </div>
-        </GlassCard>
-      </div>
+      {/* Time elapsed */}
+      <StatWidget
+        value={globalElapsed}
+        label="Time Elapsed"
+        style={{ ...base(!isFocused), left: LEFT, top: O1, width: W_HALF }}
+      />
 
-      {/* Widget 2: Cluster List (scrollable) */}
-      <div
-        className="flex flex-col"
-        style={{ ...showWhen(!isFocused), top: 180, bottom: 110 }}
-      >
-        <GlassCard className="p-0 flex-1 overflow-hidden flex flex-col">
-          <div className="px-4 pt-3 pb-2 flex-shrink-0">
-            <p className="text-[10px] text-white/35 uppercase tracking-[2px]">Clusters</p>
+      {/* Est. affected */}
+      <StatWidget
+        value={`~${globalPeople.toLocaleString()}`}
+        label="Est. Affected"
+        style={{ ...base(!isFocused), left: LEFT + W_HALF + GAP, top: O1, width: W_HALF }}
+      />
+
+      {/* Clusters count */}
+      <StatWidget
+        value={clusterCount}
+        label="Clusters"
+        style={{ ...base(!isFocused), left: LEFT, top: O2, width: W_FULL }}
+      />
+
+      {/* Cluster list (scrollable) */}
+      <div style={{ ...base(!isFocused), left: LEFT, top: O3, width: W_FULL, bottom: 110, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ ...card, padding: 0, flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ padding: '12px 16px 8px', fontSize: 10, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '0.15em', flexShrink: 0 }}>
+            Clusters
           </div>
-          <div className="overflow-y-auto flex-1 px-2 pb-2">
+          <div style={{ flex: 1, overflowY: 'auto', padding: '0 8px 8px' }}>
             {sortedClusterIds.map(cid => {
               const cluster = clusters[cid]
               if (!cluster) return null
@@ -208,138 +253,192 @@ export default function AnalysisWidgets({
                 <div
                   key={cid}
                   onClick={() => onFocusCluster(cid)}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer hover:bg-white/5 transition-colors duration-150"
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '10px 12px', borderRadius: 10, cursor: 'pointer',
+                    transition: 'background 0.15s',
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                 >
-                  <div
-                    className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                    style={{
-                      background: SEV_COLORS[sev] ?? '#8899aa',
-                      boxShadow: `0 0 6px ${SEV_COLORS[sev] ?? '#8899aa'}`,
-                    }}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[12px] font-semibold text-white truncate">{cluster.name}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-[10px] text-white/30">{posts.length} posts</span>
-                      {topNeed && (
-                        <span className="text-[10px] text-white/30">
-                          Top: {CATEGORY_LABELS[topNeed].split('/')[0].trim()}
-                        </span>
-                      )}
+                  <div style={{
+                    width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                    background: SEV_COLORS[sev] ?? '#556',
+                    boxShadow: `0 0 6px ${SEV_COLORS[sev] ?? '#556'}`,
+                  }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {cluster.name}
+                    </div>
+                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 2, display: 'flex', gap: 8 }}>
+                      <span>{posts.length} posts</span>
+                      {topNeed && <span style={{ color: CATEGORY_COLORS[topNeed] }}>{CATEGORY_LABELS[topNeed]}</span>}
                     </div>
                   </div>
                   {sev && (
-                    <span
-                      className="text-[9px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full flex-shrink-0"
-                      style={{
-                        background: `${SEV_COLORS[sev]}22`,
-                        color: SEV_COLORS[sev],
-                      }}
-                    >
+                    <span style={{
+                      fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em',
+                      padding: '3px 8px', borderRadius: 20, flexShrink: 0,
+                      background: `${SEV_COLORS[sev]}18`, color: SEV_COLORS[sev],
+                    }}>
                       {SEV_LABELS[sev]}
                     </span>
                   )}
-                  <span className="text-white/20 text-xs flex-shrink-0">›</span>
+                  <span style={{ color: 'rgba(255,255,255,0.15)', fontSize: 14, flexShrink: 0 }}>›</span>
                 </div>
               )
             })}
           </div>
-        </GlassCard>
+        </div>
       </div>
 
       {/* ════════════ FOCUSED ════════════ */}
 
-      {/* Widget 1: Cluster Header */}
-      <div
-        style={{ ...showWhen(isFocused), top: 16 }}
-      >
-        <GlassCard className="p-4">
+      {/* Back + cluster name header */}
+      <div style={{ ...base(isFocused), left: LEFT, top: F1, width: W_FULL }}>
+        <div style={{ ...card, height: F_HEADER_H, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
           <button
             onClick={() => onFocusCluster(null)}
-            className="text-[11px] font-medium text-white/40 hover:text-white/70 transition-colors mb-2 flex items-center gap-1.5"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+              fontSize: 11, color: 'rgba(255,255,255,0.4)', display: 'flex', alignItems: 'center', gap: 6,
+              marginBottom: 8, transition: 'color 0.15s',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.7)')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.4)')}
           >
-            <span>←</span> All Clusters
+            ← All Clusters
           </button>
           {focusedClusterData && (
-            <>
-              <div className="flex items-center gap-2.5 mb-2">
-                <div
-                  className="w-3 h-3 rounded-full flex-shrink-0"
-                  style={{
-                    background: SEV_COLORS[focusedSev] ?? '#8899aa',
-                    boxShadow: `0 0 8px ${SEV_COLORS[focusedSev] ?? '#8899aa'}`,
-                  }}
-                />
-                <span className="text-base font-bold text-white">{focusedClusterData.name}</span>
-                {focusedSev && (
-                  <span
-                    className="text-[9px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full ml-auto"
-                    style={{
-                      background: `${SEV_COLORS[focusedSev]}22`,
-                      color: SEV_COLORS[focusedSev],
-                    }}
-                  >
-                    {SEV_LABELS[focusedSev]}
-                  </span>
-                )}
-              </div>
-              <div className="flex gap-4 text-[10px] text-white/35">
-                <span>{focusedPosts.length} posts</span>
-                {focusedTopNeed && <span>Top need: {CATEGORY_LABELS[focusedTopNeed]}</span>}
-              </div>
-              <SeverityBar counts={focusedSevCounts} total={focusedPosts.length} />
-              <div className="flex gap-3 mt-1.5">
-                {SEV_ORDER.map(sev => (
-                  <span key={sev} className="text-[9px] text-white/30 flex items-center gap-1">
-                    <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: SEV_COLORS[sev] }} />
-                    {focusedSevCounts[sev]}
-                  </span>
-                ))}
-              </div>
-            </>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{
+                width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
+                background: SEV_COLORS[focusedSev] ?? '#556',
+                boxShadow: `0 0 8px ${SEV_COLORS[focusedSev] ?? '#556'}`,
+              }} />
+              <span style={{ fontSize: 15, fontWeight: 700 }}>{focusedClusterData.name}</span>
+              {focusedSev && (
+                <span style={{
+                  marginLeft: 'auto', fontSize: 9, fontWeight: 600, textTransform: 'uppercase',
+                  padding: '3px 8px', borderRadius: 20,
+                  background: `${SEV_COLORS[focusedSev]}18`, color: SEV_COLORS[focusedSev],
+                }}>
+                  {SEV_LABELS[focusedSev]}
+                </span>
+              )}
+            </div>
           )}
-        </GlassCard>
+        </div>
       </div>
 
-      {/* Widget 2: Resource Demand */}
-      <div
-        style={{ ...showWhen(isFocused), top: 190 }}
-      >
+      {/* Time elapsed */}
+      <StatWidget
+        value={focusedElapsed}
+        label="Time Elapsed"
+        style={{ ...base(isFocused), left: LEFT, top: F2, width: 100 }}
+      />
+
+      {/* Est. affected */}
+      <StatWidget
+        value={`~${focusedPeople}`}
+        label="Est. Affected"
+        style={{ ...base(isFocused), left: LEFT + 100 + GAP, top: F2, width: 100 }}
+      />
+
+      {/* Avg severity */}
+      <StatWidget
+        value={`${Math.round(focusedSevScore * 100)}%`}
+        label="Avg Severity"
+        color={focusedSevScore > 0.66 ? SEV_COLORS.severe : focusedSevScore > 0.33 ? SEV_COLORS.mild : SEV_COLORS.little_or_none}
+        style={{ ...base(isFocused), left: LEFT + 100 + GAP + 100 + GAP, top: F2, width: 100 }}
+      />
+
+      {/* Aid needed (ranked) — its own widget */}
+      <div style={{ ...base(isFocused), left: LEFT, top: F3, width: W_FULL }}>
         {focusedAvg && (
-          <GlassCard className="p-4">
-            <p className="text-[10px] text-white/35 uppercase tracking-[2px] mb-3">Resource Demand</p>
-            <div className="flex flex-col gap-2.5">
-              {CATEGORIES.map(cat => (
-                <CategoryScoreBar key={cat} category={cat} score={focusedAvg[cat] ?? 0} />
-              ))}
+          <div style={card}>
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 12 }}>
+              Aid Needed
             </div>
-          </GlassCard>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {focusedRankedNeeds.map((cat, rank) => {
+                const pct = Math.round(Math.min(Math.max(focusedAvg[cat] ?? 0, 0), 1) * 100)
+                return (
+                  <div key={cat} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{
+                      width: 18, height: 18, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 10, fontWeight: 700, flexShrink: 0,
+                      background: rank === 0 ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)',
+                      color: rank === 0 ? '#fff' : 'rgba(255,255,255,0.4)',
+                    }}>
+                      {rank + 1}
+                    </span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                        <span style={{ fontSize: 11, color: rank === 0 ? '#fff' : 'rgba(255,255,255,0.5)' }}>{CATEGORY_LABELS[cat]}</span>
+                        <span style={{ fontSize: 11, fontWeight: 600 }}>{pct}%</span>
+                      </div>
+                      <div style={{ height: 3, borderRadius: 2, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', borderRadius: 2, width: `${pct}%`, background: CATEGORY_COLORS[cat], transition: 'width 0.5s' }} />
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
         )}
       </div>
 
-      {/* Widget 3: Post List (scrollable) */}
-      <div
-        className="flex flex-col"
-        style={{ ...showWhen(isFocused), top: 400, bottom: 110 }}
-      >
-        <GlassCard className="p-0 flex-1 overflow-hidden flex flex-col">
-          <div className="px-4 pt-3 pb-2 flex-shrink-0 flex items-center justify-between">
-            <p className="text-[10px] text-white/35 uppercase tracking-[2px]">Posts</p>
-            <p className="text-[10px] text-white/25">{focusedPosts.length}</p>
+      {/* Post list (scrollable) */}
+      <div style={{ ...base(isFocused), left: LEFT, top: F4, width: W_FULL, bottom: 110, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ ...card, padding: 0, flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <div style={{
+            padding: '12px 16px 8px', flexShrink: 0,
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          }}>
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '0.15em' }}>Posts</span>
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)' }}>{focusedPosts.length}</span>
           </div>
-          <div className="overflow-y-auto flex-1 px-4 pb-3">
-            {sortedFocusedPosts.map((post, i) => (
-              <PostScoreRow
-                key={i}
-                date={post.date}
-                caption={post.caption}
-                scores={post.scores as CategoryScores}
-                imageUrl={post.image}
-              />
-            ))}
+          <div style={{ flex: 1, overflowY: 'auto', padding: '0 14px 10px' }}>
+            {sortedFocusedPosts.map((post, i) => {
+              const topCat = [...CATEGORIES].sort((a, b) => (post.scores[b] ?? 0) - (post.scores[a] ?? 0))[0]
+              const topScore = post.scores[topCat] ?? 0
+              return (
+                <div
+                  key={i}
+                  style={{
+                    display: 'flex', alignItems: 'flex-start', gap: 10,
+                    padding: '8px 0',
+                    borderBottom: i < sortedFocusedPosts.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
+                  }}
+                >
+                  {post.image && (
+                    <img
+                      src={post.image}
+                      alt=""
+                      style={{ width: 36, height: 36, borderRadius: 8, objectFit: 'cover', flexShrink: 0, opacity: 0.85 }}
+                    />
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', marginBottom: 2 }}>{post.date}</div>
+                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {post.caption}
+                    </div>
+                  </div>
+                  <div style={{ flexShrink: 0, textAlign: 'right' }}>
+                    <div style={{ fontSize: 10, fontWeight: 500, color: CATEGORY_COLORS[topCat] }}>
+                      {CATEGORY_LABELS[topCat]}
+                    </div>
+                    <div style={{ fontSize: 11, fontWeight: 600, marginTop: 1 }}>
+                      {Math.round(topScore * 100)}%
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
           </div>
-        </GlassCard>
+        </div>
       </div>
     </>
   )
