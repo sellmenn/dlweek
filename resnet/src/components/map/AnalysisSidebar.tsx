@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import type { AnalyzedPost } from '../../types/post'
 import type { Cluster } from '../../types/cluster'
 import type { Category, CategoryScores } from '../widgets/inferenceWidgets'
@@ -33,10 +33,11 @@ const SEV_LABELS: Record<string, string> = {
 const PEOPLE_PER_POST = 15
 
 const card: React.CSSProperties = {
-  background: 'rgba(13, 15, 23, 0.85)',
-  backdropFilter: 'blur(24px)',
-  WebkitBackdropFilter: 'blur(24px)',
-  border: '1px solid rgba(255,255,255,0.06)',
+  background: 'rgba(255, 255, 255, 0.04)',
+  backdropFilter: 'blur(20px)',
+  WebkitBackdropFilter: 'blur(20px)',
+  boxShadow: '0 8px 32px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.08)',
+  border: '1px solid rgba(255,255,255,0.08)',
   borderRadius: 14,
   color: 'white',
   padding: '14px 18px',
@@ -88,6 +89,78 @@ function StatWidget({ value, label, color, style }: {
   )
 }
 
+/** Collapsible AI Situation Report widget on the right side */
+function SummaryWidget({ visible, llmSummary, summaryLoading }: {
+  visible: boolean; llmSummary: string; summaryLoading: boolean
+}) {
+  const [collapsed, setCollapsed] = useState(false)
+  const show = visible && (summaryLoading || !!llmSummary)
+
+  return (
+    <div style={{
+      position: 'absolute',
+      right: 16,
+      top: 16,
+      width: 360,
+      zIndex: 1000,
+      opacity: show ? 1 : 0,
+      transform: show ? 'translateY(0)' : 'translateY(-12px)',
+      pointerEvents: show ? 'auto' : 'none',
+      transition: 'opacity 0.4s ease, transform 0.4s ease',
+    }}>
+      <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
+        {/* Header — always visible, click to toggle */}
+        <button
+          onClick={() => setCollapsed(c => !c)}
+          style={{
+            width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer', color: 'white',
+          }}
+        >
+          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
+            AI Situation Report
+          </span>
+          <span style={{
+            fontSize: 14, color: 'rgba(255,255,255,0.3)',
+            transform: collapsed ? 'rotate(-90deg)' : 'rotate(0)',
+            transition: 'transform 0.2s',
+          }}>
+            ▼
+          </span>
+        </button>
+
+        {/* Body — collapsible */}
+        <div style={{
+          maxHeight: collapsed ? 0 : 500,
+          overflow: 'hidden',
+          transition: 'max-height 0.3s ease',
+        }}>
+          <div style={{ padding: '0 16px 14px' }}>
+            {summaryLoading ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 0' }}>
+                <div style={{
+                  width: 14, height: 14, border: '2px solid rgba(255,255,255,0.15)',
+                  borderTopColor: '#6c63ff', borderRadius: '50%',
+                  animation: 'spin 0.8s linear infinite',
+                }} />
+                <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>Generating report...</span>
+                <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+              </div>
+            ) : (
+              <div style={{
+                fontSize: 12, lineHeight: 1.6, color: 'rgba(255,255,255,0.7)',
+                whiteSpace: 'pre-wrap', maxHeight: 400, overflowY: 'auto',
+              }}>
+                {llmSummary}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 interface Props {
   clusters: Record<string, Cluster>
   analyzedPosts: AnalyzedPost[]
@@ -96,18 +169,21 @@ interface Props {
   focusedCluster: string | null
   onFocusCluster: (cid: string | null) => void
   analysisStartTime: number
+  llmSummary: string
+  summaryLoading: boolean
 }
 
 export default function AnalysisWidgets({
   clusters, analyzedPosts, phase, sliderValue,
   focusedCluster, onFocusCluster, analysisStartTime,
+  llmSummary, summaryLoading,
 }: Props) {
-  const visible = phase === 'done'
+  const visible = phase === 'predicting' || phase === 'animating' || phase === 'done'
   const isFocused = focusedCluster !== null
 
   const activePosts = useMemo(
-    () => analyzedPosts.slice(0, sliderValue),
-    [analyzedPosts, sliderValue],
+    () => phase === 'done' ? analyzedPosts.slice(0, sliderValue) : analyzedPosts,
+    [analyzedPosts, sliderValue, phase],
   )
 
   const postsByCluster = useMemo(() => {
@@ -440,6 +516,13 @@ export default function AnalysisWidgets({
           </div>
         </div>
       </div>
+
+      {/* ════════════ AI SUMMARY (right side) ════════════ */}
+      <SummaryWidget
+        visible={phase === 'done'}
+        llmSummary={llmSummary}
+        summaryLoading={summaryLoading}
+      />
     </>
   )
 }

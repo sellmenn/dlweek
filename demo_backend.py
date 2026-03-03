@@ -362,6 +362,53 @@ def api_predict():
     })
 
 
+@app.route("/api/summarize", methods=["POST"])
+def api_summarize():
+    """Use OpenAI LLM to summarize crisis analysis data and provide actionable items."""
+    from dotenv import load_dotenv
+    load_dotenv()
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        return jsonify({"summary": "OpenAI API key not configured."}), 500
+
+    import openai
+
+    data = __import__("flask").request.get_json(force=True)
+
+    prompt = f"""You are a crisis response analyst. Based on the following post-disaster analysis data from Hurricane Maria in Puerto Rico, provide a concise situation report with actionable recommendations.
+
+Data:
+- Total posts analyzed: {data.get('totalPosts', 0)}
+- Number of clusters: {data.get('clusterCount', 0)}
+- Severity distribution: {json.dumps(data.get('severityDistribution', {}))}
+- Cluster details: {json.dumps(data.get('clusters', []))}
+
+Write a brief situation report (3-5 sentences) followed by 3-5 actionable bullet points. Focus on which areas need the most urgent attention, what types of aid are most needed, and priority recommendations.
+
+Example output:
+**Situation Report**
+Analysis of 500 social media posts reveals significant damage concentration in the San Juan metropolitan area, with severe infrastructure and water/sanitation needs. Three of eight identified clusters show severe conditions requiring immediate intervention.
+
+**Priority Actions**
+- Deploy emergency water purification units to Ponce cluster (highest sanitation_water score at 78%)
+- Prioritize infrastructure repair crews for San Juan area (65% of severe-rated posts)
+- Establish mobile medical stations in Humacao region (medication need score 72%)
+- Coordinate food distribution to Mayaguez cluster (food need score 68%)"""
+
+    try:
+        client = openai.OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=600,
+            temperature=0.3,
+        )
+        summary = response.choices[0].message.content
+        return jsonify({"summary": summary})
+    except Exception as e:
+        return jsonify({"summary": f"Failed to generate summary: {str(e)}"}), 500
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():

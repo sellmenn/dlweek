@@ -1,6 +1,11 @@
 # ResNet — Post-Crisis Resource Allocation System
 
-An end-to-end machine learning system that analyzes disaster social media posts to predict emergency resource needs and visualize them on an interactive map. Combines multimodal deep learning (CLIP), spatial clustering (DBSCAN), and a trained neural network classifier with a React + Leaflet frontend.
+An end-to-end machine learning system that analyzes disaster social media posts to predict emergency resource needs and visualize them on an interactive map. Combines multimodal deep learning (CLIP), spatial clustering (DBSCAN), and a trained neural network classifier with a React + Leaflet frontend and LLM-powered crisis summaries.
+
+## Tech Stack
+
+**Backend:** Python, Flask, PyTorch, CLIP ViT-B/32, scikit-learn (DBSCAN), OpenAI API
+**Frontend:** React 19, TypeScript, Vite 7, Tailwind CSS 4, Leaflet, Zustand, React Query
 
 ## Quick Start
 
@@ -87,6 +92,8 @@ Crisis Social Media Posts (image + caption + coordinates)
 
 4. **Interactive Timeline Slider** — After analysis, scrub through posts chronologically to see how resource demands evolve over time, with on-the-fly severity recomputation.
 
+5. **LLM Crisis Summary** — After inference, the `/api/summarize` endpoint sends cluster-level resource scores to an LLM to generate a natural-language situation analysis with actionable insights.
+
 ## Project Structure
 
 ```
@@ -102,10 +109,12 @@ Crisis Social Media Posts (image + caption + coordinates)
 ├── requirements.txt      # Python dependencies
 ├── resnet/               # React + TypeScript frontend
 │   ├── src/
-│   │   ├── components/map/  # Map, PostMarkers, ClusterPopup
-│   │   ├── types/           # TypeScript interfaces
-│   │   ├── store/           # Zustand state management
-│   │   └── hooks/           # Custom React hooks
+│   │   ├── components/
+│   │   │   ├── map/           # Map, PostMarkers, ClusterPopup, AnalysisSidebar, HeatMap
+│   │   │   └── widgets/       # GlassCard, StatCard, TimerCard, InferenceWidgets
+│   │   ├── types/           # TypeScript interfaces (Post, Cluster, Crisis)
+│   │   ├── store/           # Zustand stores (posts, predict, map, filter, crisis)
+│   │   └── hooks/           # Custom hooks (usePosts, usePredict, useMapClusters)
 │   ├── package.json
 │   └── vite.config.ts
 ├── CrisisMMD_v2.0/       # Dataset (not included)
@@ -117,8 +126,17 @@ Crisis Social Media Posts (image + caption + coordinates)
 
 Uses [CrisisMMD](https://crisisnlp.qcri.org/crisismmd), a multimodal crisis dataset covering 7 major 2017 disasters: Hurricane Harvey, Hurricane Irma, Hurricane Maria, Mexico Earthquake, Iraq-Iran Earthquake, California Wildfires, and Sri Lanka Floods.
 
+## API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/posts` | GET | Returns all posts with cluster assignments |
+| `/api/predict` | GET | SSE stream — runs inference on all posts, streams progress events |
+| `/api/summarize` | POST | Generates an LLM-powered crisis situation summary |
+| `/images/<path>` | GET | Serves post images from the dataset |
+
 ## Environment Variables
 
 ```
-OPENAI_API_KEY=sk-...   # Required only for generate_labels.py
+OPENAI_API_KEY=sk-...   # Required for generate_labels.py and /api/summarize
 ```
