@@ -2,8 +2,8 @@ export interface Post {
   lat: number;
   lon: number;
   caption: string;
-  cluster: 0;
+  cluster: number;
   image: string;
   date: string;
-  timestamp: string;
+  timestamp: number;
 }
