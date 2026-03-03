@@ -1,10 +1,6 @@
 export interface Cluster {
-    name: string,
-    centroid: {
-        lat: number,
-        long: number
-    },
-    count: number,
-    severity_score: number,
-    severity_class: "low" | "medium" | "high"
+    name: string;
+    centroid: [number, number];
+    count: number;
+    combined_severity: 'little_or_none' | 'mild' | 'severe';
 }

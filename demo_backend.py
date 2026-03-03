@@ -58,6 +58,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
+
 import numpy as np
 from flask import Flask, jsonify, Response, send_from_directory, send_file
 from sklearn.cluster import DBSCAN
@@ -65,6 +66,11 @@ import torch
 
 from encoder import CLIPEncoder
 from model import RESOURCE_CATEGORIES, load_model
+
+from flask_cors import CORS
+
+app = Flask(__name__)
+CORS(app, supports_credentials=True)
 
 # ── Twitter snowflake helpers ─────────────────────────────────────────────────
 
@@ -198,8 +204,6 @@ IMAGE_DIR = "hurricane_maria"
 CLUSTER_META = {}
 
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "demo_output")
-
-app = Flask(__name__)
 
 
 # ── DBSCAN ────────────────────────────────────────────────────────────────────
