@@ -64,6 +64,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .bar-track { flex: 1; height: 7px; background: #262938; border-radius: 4px; overflow: hidden; }
 .bar-fill { height: 100%; border-radius: 4px; transition: width 0.6s ease; }
 .bar-value { width: 36px; text-align: right; font-size: 10px; color: #aaa; font-variant-numeric: tabular-nums; }
+.severity-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; }
+.severity-little_or_none { background: rgba(46,204,113,0.15); color: #2ecc71; }
+.severity-mild { background: rgba(243,156,18,0.15); color: #f39c12; }
+.severity-severe { background: rgba(231,76,60,0.15); color: #e74c3c; }
 
 /* Map */
 #map-container { flex: 1; position: relative; }
@@ -200,6 +204,12 @@ function showPosts(n) {
       categories.forEach(cat => {
         popupHtml += `<div class="popup-score"><span>${cat.replace('_',' ')}</span><span>${postScores[i][cat].toFixed(2)}</span></div>`;
       });
+      const sev = postScores[i].severity_label;
+      if (sev) {
+        popupHtml += `<div style="margin-top:4px;display:flex;justify-content:space-between;align-items:center">
+          <span>severity</span><span class="severity-badge severity-${sev}">${sev.replace('_',' ')}</span>
+        </div>`;
+      }
       popupHtml += '</div>';
     }
 
@@ -249,6 +259,7 @@ function renderClusterCards() {
     card.className = 'cluster-card';
 
     let barsHtml = '';
+    let severityHtml = '';
     if (clusterScores && clusterScores[String(cid)]) {
       const scores = clusterScores[String(cid)];
       categories.forEach(cat => {
@@ -260,6 +271,17 @@ function renderClusterCards() {
           <span class="bar-value">${val.toFixed(2)}</span>
         </div>`;
       });
+      if (scores.combined_severity) {
+        const sev = scores.combined_severity;
+        const ws = scores.weighted_severity;
+        severityHtml = `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
+          <span style="font-size:10px;color:#888">Severity</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:10px;color:#aaa">${ws.toFixed(2)}</span>
+            <span class="severity-badge severity-${sev}">${sev.replace('_',' ')}</span>
+          </div>
+        </div>`;
+      }
     }
 
     card.innerHTML = `
@@ -271,6 +293,7 @@ function renderClusterCards() {
         <span class="cluster-count">${memberIndices.length} posts</span>
       </div>
       ${barsHtml}
+      ${severityHtml}
     `;
 
     card.addEventListener('click', () => {
