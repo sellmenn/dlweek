@@ -28,6 +28,8 @@ class CLIPEncoder:
         image = Image.open(image_path).convert("RGB")
         inputs = self.processor(images=image, return_tensors="pt").to(self.device)
         emb = self.model.get_image_features(**inputs)
+        if not isinstance(emb, torch.Tensor):
+            emb = emb.pooler_output if hasattr(emb, 'pooler_output') else emb[0]
         emb = emb / emb.norm(dim=-1, keepdim=True)
         return emb.squeeze(0).cpu()
 
@@ -36,6 +38,8 @@ class CLIPEncoder:
         """Encode a single text string to a 512-dim vector."""
         inputs = self.processor(text=[text], return_tensors="pt", truncation=True, max_length=77).to(self.device)
         emb = self.model.get_text_features(**inputs)
+        if not isinstance(emb, torch.Tensor):
+            emb = emb.pooler_output if hasattr(emb, 'pooler_output') else emb[0]
         emb = emb / emb.norm(dim=-1, keepdim=True)
         return emb.squeeze(0).cpu()
 
@@ -46,6 +50,8 @@ class CLIPEncoder:
             return torch.zeros(0, CLIP_DIM)
         inputs = self.processor(text=texts, return_tensors="pt", padding=True, truncation=True, max_length=77).to(self.device)
         emb = self.model.get_text_features(**inputs)
+        if not isinstance(emb, torch.Tensor):
+            emb = emb.pooler_output if hasattr(emb, 'pooler_output') else emb[0]
         emb = emb / emb.norm(dim=-1, keepdim=True)
         return emb.cpu()
 

@@ -65,7 +65,7 @@ function timeSpan(posts: AnalyzedPost[]): string {
 
 function avgSeverityScore(posts: AnalyzedPost[]): number {
   if (posts.length === 0) return 0
-  const W: Record<string, number> = { little_or_none: 0, mild: 0.5, severe: 1 }
+  const W: Record<string, number> = { little_or_none: 0.1, mild: 0.3, severe: 1 }
   return posts.reduce((acc, p) => acc + (W[p.severity_label] ?? 0), 0) / posts.length
 }
 
@@ -248,7 +248,7 @@ export default function AnalysisWidgets({
     : []
 
   const sortedFocusedPosts = [...focusedPosts].sort((a, b) => {
-    const W: Record<string, number> = { little_or_none: 0, mild: 0.5, severe: 1 }
+    const W: Record<string, number> = { little_or_none: 0.1, mild: 0.3, severe: 1 }
     return (W[b.severity_label] ?? 0) - (W[a.severity_label] ?? 0)
   })
 
@@ -425,7 +425,7 @@ export default function AnalysisWidgets({
       <StatWidget
         value={`${Math.round(focusedSevScore * 100)}%`}
         label="Avg Severity"
-        color={focusedSevScore > 0.66 ? SEV_COLORS.severe : focusedSevScore > 0.33 ? SEV_COLORS.mild : SEV_COLORS.little_or_none}
+        color={focusedSevScore >= 0.30 ? SEV_COLORS.severe : focusedSevScore >= 0.20 ? SEV_COLORS.mild : SEV_COLORS.little_or_none}
         style={{ ...base(isFocused), left: LEFT + 100 + GAP + 100 + GAP, top: F2, width: 100 }}
       />
 

@@ -207,7 +207,7 @@ const Map = () => {
 
                 const cid = String(data.cluster);
                 if (cid !== '-1' && data.severity_label) {
-                    const WEIGHTS: Record<string, number> = { little_or_none: 0, mild: 0.5, severe: 1 };
+                    const WEIGHTS: Record<string, number> = { little_or_none: 0.1, mild: 0.3, severe: 1 };
                     const w = WEIGHTS[data.severity_label] ?? 0;
                     postSeverityRef.current.push({ cluster: cid, weight: w });
                     if (!clusterSeverityRef.current[cid]) clusterSeverityRef.current[cid] = [];
@@ -215,7 +215,7 @@ const Map = () => {
 
                     const arr = clusterSeverityRef.current[cid];
                     const avg = arr.reduce((a, b) => a + b, 0) / arr.length;
-                    const severity = avg < 0.33 ? 'little_or_none' : avg < 0.66 ? 'mild' : 'severe';
+                    const severity = avg < 0.20 ? 'little_or_none' : avg < 0.30 ? 'mild' : 'severe';
 
                     const updated = { ...clustersRef.current };
                     if (updated[cid]) {

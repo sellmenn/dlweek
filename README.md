@@ -4,7 +4,7 @@ An end-to-end machine learning system that analyzes disaster social media posts 
 
 ## Tech Stack
 
-**Backend:** Python, Flask, PyTorch, CLIP ViT-B/32, scikit-learn (DBSCAN), OpenAI API
+**Backend:** Python, Flask, PyTorch, CLIP ViT-B/32, ViT (damage severity), scikit-learn (DBSCAN), OpenAI API
 **Frontend:** React 19, TypeScript, Vite 7, Tailwind CSS 4, Leaflet, Zustand, React Query
 
 ## Quick Start
@@ -30,7 +30,7 @@ npm install
 
 ```bash
 # Terminal 1 — Backend API server
-python demo_backend.py --sample 500 --model checkpoints/model.pt --port 8000
+python demo_backend.py --sample 500 --model checkpoints/model.pt --severity-model checkpoints/vit-crisis-damage-final --port 8000
 
 # Terminal 2 — Frontend dev server
 cd resnet
@@ -73,7 +73,11 @@ Crisis Social Media Posts (image + caption + coordinates)
    [infrastructure, food, shelter, sanitation_water, medication]
         │
         ▼
-   Cluster-level aggregation + severity mapping
+   ViT Damage Severity Classifier (ViT-B/16, 3-class)
+   → little_or_none | mild | severe
+        │
+        ▼
+   Cluster-level aggregation + weighted severity
         │
         ▼
    Flask API (REST + SSE streaming)
@@ -88,11 +92,13 @@ Crisis Social Media Posts (image + caption + coordinates)
 
 2. **Multimodal CLIP Encoding** — Concatenates image and text embeddings from CLIP ViT-B/32 into a 1024-dim feature vector, capturing both visual damage and textual context.
 
-3. **Real-Time SSE Streaming** — Server-Sent Events stream inference progress to the frontend, enabling live marker animation as posts are analyzed.
+3. **ViT Damage Severity Classification** — A fine-tuned Vision Transformer (ViT-B/16) classifies each post's image into three damage severity levels (little_or_none, mild, severe), replacing heuristic-based severity estimation with learned visual features.
 
-4. **Interactive Timeline Slider** — After analysis, scrub through posts chronologically to see how resource demands evolve over time, with on-the-fly severity recomputation.
+4. **Real-Time SSE Streaming** — Server-Sent Events stream inference progress to the frontend, enabling live marker animation as posts are analyzed.
 
-5. **LLM Crisis Summary** — After inference, the `/api/summarize` endpoint sends cluster-level resource scores to an LLM to generate a natural-language situation analysis with actionable insights.
+5. **Interactive Timeline Slider** — After analysis, scrub through posts chronologically to see how resource demands evolve over time, with on-the-fly severity recomputation.
+
+6. **LLM Crisis Summary** — After inference, the `/api/summarize` endpoint sends cluster-level resource scores to an LLM to generate a natural-language situation analysis with actionable insights.
 
 ## Project Structure
 
@@ -118,7 +124,9 @@ Crisis Social Media Posts (image + caption + coordinates)
 │   ├── package.json
 │   └── vite.config.ts
 ├── CrisisMMD_v2.0/       # Dataset (not included)
-├── checkpoints/          # Trained model weights
+├── checkpoints/
+│   ├── model.pt                    # ResourceClassifier weights
+│   └── vit-crisis-damage-final/    # ViT severity classifier (HuggingFace format)
 └── documentation/        # LaTeX documentation
 ```
 
