@@ -9,7 +9,7 @@ NUM_CATEGORIES = len(RESOURCE_CATEGORIES)
 
 class ResourceClassifier(nn.Module):
     """
-    MLP that takes concatenated CLIP embeddings (1536-dim) and outputs
+    MLP that takes concatenated CLIP embeddings (1024-dim) and outputs
     a 0-1 score for each of the 5 resource need categories.
     """
 

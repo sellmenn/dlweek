@@ -32,14 +32,20 @@ class CrisisDataset(Dataset):
         return self.features[idx], self.labels[idx]
 
 
-def precompute_features(labels_file: str, data_dir: str, encoder: CLIPEncoder) -> tuple:
+def precompute_features(labels_file: str, data_dir: str, encoder: CLIPEncoder,
+                        cache_path: str = "data/cached_features.pt") -> tuple:
     """
     Load labeled data, encode with CLIP, return (features, labels) tensors.
+    Caches the result to cache_path so subsequent runs skip CLIP encoding.
 
     Each sample is encoded as:
-    - image embedding (512) + caption embedding (512) + zeros (512) = 1536-dim
-    (Transcription slot is zeroed since training data is social media posts only.)
+    - image embedding (512) + caption embedding (512) = 1024-dim
     """
+    if os.path.exists(cache_path):
+        print(f"  Loading cached features from {cache_path}")
+        cached = torch.load(cache_path, weights_only=True)
+        return cached["features"], cached["labels"]
+
     with open(labels_file, "r") as f:
         samples = json.load(f)
 
@@ -55,24 +61,32 @@ def precompute_features(labels_file: str, data_dir: str, encoder: CLIPEncoder) -
 
         img_emb = encoder.encode_image(image_path)
         cap_emb = encoder.encode_text(sample["caption"]) if sample["caption"] else torch.zeros(512)
-        trans_emb = torch.zeros(512)  # no transcription in training data
 
-        feature = torch.cat([img_emb, cap_emb, trans_emb], dim=0)
+        feature = torch.cat([img_emb, cap_emb], dim=0)
         all_features.append(feature)
 
         label = torch.tensor([sample["labels"][cat] for cat in RESOURCE_CATEGORIES], dtype=torch.float32)
         all_labels.append(label)
 
-    return torch.stack(all_features), torch.stack(all_labels)
+    features = torch.stack(all_features)
+    labels = torch.stack(all_labels)
+
+    os.makedirs(os.path.dirname(cache_path) or ".", exist_ok=True)
+    torch.save({"features": features, "labels": labels}, cache_path)
+    print(f"  Cached features to {cache_path}")
+
+    return features, labels
 
 
-def train(model, train_loader, val_loader, epochs, lr, device):
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
+def train(model, train_loader, val_loader, epochs, lr, device, patience=20):
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-3)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=7)
     criterion = nn.BCELoss()
     model.to(device)
 
     best_val_loss = float("inf")
     best_state = None
+    epochs_without_improvement = 0
 
     history = {
         "train_loss": [],
@@ -110,6 +124,8 @@ def train(model, train_loader, val_loader, epochs, lr, device):
                 all_labels.append(labels.cpu())
         val_loss /= len(val_loader.dataset)
 
+        scheduler.step(val_loss)
+
         # Compute MAE per category
         all_preds = torch.cat(all_preds, dim=0).numpy()
         all_labels = torch.cat(all_labels, dim=0).numpy()
@@ -122,11 +138,18 @@ def train(model, train_loader, val_loader, epochs, lr, device):
         for j, cat in enumerate(RESOURCE_CATEGORIES):
             history["val_mae_per_cat"][cat].append(mae_per_cat[j])
 
-        print(f"  Epoch {epoch+1}/{epochs} - Train Loss: {train_loss:.4f} - Val Loss: {val_loss:.4f} - Val MAE: {mae_overall:.4f}")
+        current_lr = optimizer.param_groups[0]["lr"]
+        print(f"  Epoch {epoch+1}/{epochs} - Train Loss: {train_loss:.4f} - Val Loss: {val_loss:.4f} - Val MAE: {mae_overall:.4f} - LR: {current_lr:.1e}")
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             best_state = {k: v.clone() for k, v in model.state_dict().items()}
+            epochs_without_improvement = 0
+        else:
+            epochs_without_improvement += 1
+            if epochs_without_improvement >= patience:
+                print(f"  Early stopping at epoch {epoch+1} (no improvement for {patience} epochs)")
+                break
 
     if best_state:
         model.load_state_dict(best_state)
@@ -201,7 +224,7 @@ def main():
     parser.add_argument("--labels", required=True, help="Path to labels.json from generate_labels.py")
     parser.add_argument("--data-dir", required=True, help="Base directory containing images")
     parser.add_argument("--output", default="checkpoints/model.pt", help="Output model checkpoint path")
-    parser.add_argument("--epochs", type=int, default=500)
+    parser.add_argument("--epochs", type=int, default=200)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--val-split", type=float, default=0.2)

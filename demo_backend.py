@@ -307,8 +307,7 @@ def api_predict():
         for i, post in enumerate(POSTS):
             img_emb = ENCODER.encode_image(post["image_path"])
             cap_emb = ENCODER.encode_text(post["caption"]) if post["caption"] else torch.zeros(512)
-            trans_emb = torch.zeros(512)
-            feature = torch.cat([img_emb, cap_emb, trans_emb], dim=0).unsqueeze(0).to(DEVICE)
+            feature = torch.cat([img_emb, cap_emb], dim=0).unsqueeze(0).to(DEVICE)
 
             with torch.no_grad():
                 scores = MODEL(feature).squeeze(0).cpu().numpy()
