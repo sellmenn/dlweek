@@ -45,7 +45,7 @@ Response Formats:
             data: {
                 "type": "done",
                 "post_scores": [{"infrastructure": 0.82, ...}, ...],
-                "cluster_scores": {"0": {"infrastructure": 0.75, ...}, ...}
+                "cluster_scores": {"0": {"infrastructure": 0.75, "weighted_severity": 0.403, "combined_severity": "mild", ...}, ...}
             }
 """
 
@@ -303,6 +303,7 @@ def api_predict():
     def generate():
         total = len(POSTS)
         MODEL.eval()
+        rng = np.random.RandomState(42)
 
         for i, post in enumerate(POSTS):
             img_emb = ENCODER.encode_image(post["image_path"])
@@ -313,9 +314,22 @@ def api_predict():
                 scores = MODEL(feature).squeeze(0).cpu().numpy()
 
             post["resource_scores"] = {cat: round(float(scores[j]), 4) for j, cat in enumerate(RESOURCE_CATEGORIES)}
+
+            # Placeholder severity (random) — will be replaced by a real severity model
+            severity_score = rng.random()
+            if severity_score < 0.33:
+                severity_label = "little_or_none"
+            elif severity_score < 0.66:
+                severity_label = "mild"
+            else:
+                severity_label = "severe"
+            post["severity_score"] = round(float(severity_score), 4)
+            post["severity_label"] = severity_label
+
             yield f"data: {json.dumps({'type': 'progress', 'current': i + 1, 'total': total})}\n\n"
 
-        # Per-cluster averaged scores
+        # Per-cluster averaged scores + severity
+        SEVERITY_WEIGHTS = {"little_or_none": 0.0, "mild": 0.5, "severe": 1.0}
         cluster_ids = sorted(set(p.get("cluster_label", -1) for p in POSTS if p.get("cluster_label", -1) != -1))
         cluster_scores = {}
         for cid in cluster_ids:
@@ -323,11 +337,25 @@ def api_predict():
             avg = {}
             for cat in RESOURCE_CATEGORIES:
                 avg[cat] = round(float(np.mean([p["resource_scores"][cat] for p in members])), 4)
+
+            # Weighted severity: average of numeric severity weights across members
+            weighted_severity = float(np.mean([SEVERITY_WEIGHTS[p["severity_label"]] for p in members]))
+            avg["weighted_severity"] = round(weighted_severity, 4)
+            if weighted_severity < 0.33:
+                avg["combined_severity"] = "little_or_none"
+            elif weighted_severity < 0.66:
+                avg["combined_severity"] = "mild"
+            else:
+                avg["combined_severity"] = "severe"
+
             cluster_scores[str(cid)] = avg
 
         post_scores = []
         for p in POSTS:
-            post_scores.append(p.get("resource_scores", {cat: 0 for cat in RESOURCE_CATEGORIES}))
+            ps = p.get("resource_scores", {cat: 0 for cat in RESOURCE_CATEGORIES})
+            ps["severity_score"] = p.get("severity_score", 0)
+            ps["severity_label"] = p.get("severity_label", "little_or_none")
+            post_scores.append(ps)
 
         yield f"data: {json.dumps({'type': 'done', 'post_scores': post_scores, 'cluster_scores': cluster_scores})}\n\n"
 
