@@ -76,6 +76,7 @@ const Map = () => {
     const [focusedCluster, setFocusedCluster] = useState<string | null>(null);
     const [flyTarget, setFlyTarget] = useState<[number, number] | null>(null);
     const [analyzedPosts, setAnalyzedPosts] = useState<AnalyzedPost[]>([]);
+    const [analysisStartTime, setAnalysisStartTime] = useState<number>(0);
 
     const allPostsRef = useRef<Post[]>([]);
     const clustersRef = useRef<Record<string, Cluster>>({});
@@ -127,6 +128,7 @@ const Map = () => {
 
     const handleRun = () => {
         if (phase === 'predicting' || phase === 'animating') return;
+        setAnalysisStartTime(Date.now());
 
         if (intervalRef.current) clearInterval(intervalRef.current);
         setVisiblePosts([]);
@@ -287,15 +289,20 @@ const Map = () => {
                 <MapFlyTo target={flyTarget} suppressRef={flyingSuppressRef} />
             </MapContainer>
 
-            {/* Analysis widgets — left side, fades in when done */}
-            <AnalysisSidebar
-                clusters={clusters}
-                analyzedPosts={analyzedPosts}
-                phase={phase}
-                sliderValue={sliderValue}
-                focusedCluster={focusedCluster}
-                onFocusCluster={handleFocusCluster}
-            />
+            {/* Analysis widgets overlay — sits above the map */}
+            <div style={{ position: 'absolute', inset: 0, zIndex: 1000, pointerEvents: 'none' }}>
+                <div style={{ position: 'relative', width: '100%', height: '100%', pointerEvents: 'none' }}>
+                    <AnalysisSidebar
+                        clusters={clusters}
+                        analyzedPosts={analyzedPosts}
+                        phase={phase}
+                        sliderValue={sliderValue}
+                        focusedCluster={focusedCluster}
+                        onFocusCluster={handleFocusCluster}
+                        analysisStartTime={analysisStartTime}
+                    />
+                </div>
+            </div>
 
             <div style={{
                 position: 'absolute', bottom: 32, left: '50%', transform: 'translateX(-50%)',
