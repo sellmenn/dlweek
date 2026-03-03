@@ -7,3 +7,8 @@ export interface Post {
   date: string;
   timestamp: number;
 }
+
+export interface AnalyzedPost extends Post {
+  scores: Record<string, number>;
+  severity_label: string;
+}
