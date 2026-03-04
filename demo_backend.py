@@ -64,6 +64,9 @@ from flask import Flask, jsonify, Response, send_from_directory, send_file
 from sklearn.cluster import DBSCAN
 import torch
 
+from PIL import Image
+from transformers import ViTForImageClassification, ViTImageProcessor
+
 from encoder import CLIPEncoder
 from model import RESOURCE_CATEGORIES, load_model
 
@@ -199,6 +202,8 @@ def nearest_city(lat, lon):
 POSTS = []
 ENCODER = None
 MODEL = None
+SEVERITY_MODEL = None
+SEVERITY_PROCESSOR = None
 DEVICE = "cpu"
 IMAGE_DIR = "hurricane_maria"
 CLUSTER_META = {}
@@ -307,7 +312,6 @@ def api_predict():
     def generate():
         total = len(POSTS)
         MODEL.eval()
-        rng = np.random.RandomState(42)
 
         for i, post in enumerate(POSTS):
             img_emb = ENCODER.encode_image(post["image_path"])
@@ -319,15 +323,16 @@ def api_predict():
 
             post["resource_scores"] = {cat: round(float(scores[j]), 4) for j, cat in enumerate(RESOURCE_CATEGORIES)}
 
-            # Placeholder severity (random) — will be replaced by a real severity model
-            severity_score = rng.random()
-            if severity_score < 0.33:
-                severity_label = "little_or_none"
-            elif severity_score < 0.66:
-                severity_label = "mild"
-            else:
-                severity_label = "severe"
-            post["severity_score"] = round(float(severity_score), 4)
+            # ViT severity classification
+            pil_img = Image.open(post["image_path"]).convert("RGB")
+            sev_inputs = SEVERITY_PROCESSOR(images=pil_img, return_tensors="pt").to(DEVICE)
+            with torch.no_grad():
+                sev_logits = SEVERITY_MODEL(**sev_inputs).logits
+            sev_probs = torch.softmax(sev_logits, dim=-1).squeeze(0).cpu().numpy()
+            sev_pred = int(sev_probs.argmax())
+            severity_label = SEVERITY_MODEL.config.id2label[sev_pred]
+            severity_score = float(sev_probs[sev_pred])
+            post["severity_score"] = round(severity_score, 4)
             post["severity_label"] = severity_label
 
             yield f"data: {json.dumps({'type': 'progress', 'current': i + 1, 'total': total, 'cluster': post.get('cluster_label', -1), 'severity_label': severity_label, 'scores': post['resource_scores']})}\n\n"
@@ -415,12 +420,13 @@ def main():
     parser = argparse.ArgumentParser(description="Hurricane Maria demo API server")
     parser.add_argument("--sample", type=int, default=500)
     parser.add_argument("--model", default="checkpoints/model.pt")
+    parser.add_argument("--severity-model", default="checkpoints/vit-crisis-damage-final")
     parser.add_argument("--tsv", default="CrisisMMD_v2.0/annotations/hurricane_maria_final_data.tsv")
     parser.add_argument("--image-dir", default="hurricane_maria")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
 
-    global POSTS, ENCODER, MODEL, DEVICE, IMAGE_DIR
+    global POSTS, ENCODER, MODEL, SEVERITY_MODEL, SEVERITY_PROCESSOR, DEVICE, IMAGE_DIR
 
     DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
     print(f"Device: {DEVICE}")
@@ -439,6 +445,11 @@ def main():
 
     print("Loading trained model...")
     MODEL = load_model(args.model, device=DEVICE)
+
+    print("Loading severity model...")
+    SEVERITY_PROCESSOR = ViTImageProcessor.from_pretrained(args.severity_model)
+    SEVERITY_MODEL = ViTForImageClassification.from_pretrained(args.severity_model).to(DEVICE)
+    SEVERITY_MODEL.eval()
 
     print(f"\nServer starting on http://localhost:{args.port}")
     app.run(host="0.0.0.0", port=args.port, debug=False, threaded=True)
