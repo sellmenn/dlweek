@@ -265,7 +265,7 @@ const Map = () => {
         for (const [cid, meta] of Object.entries(updated)) {
             if (accum[cid]) {
                 const avg = accum[cid].reduce((a, b) => a + b, 0) / accum[cid].length;
-                const sev = avg < 0.33 ? SEVERITY_LABELS[0] : avg < 0.66 ? SEVERITY_LABELS[1] : SEVERITY_LABELS[2];
+                const sev = avg < 0.20 ? SEVERITY_LABELS[0] : avg < 0.30 ? SEVERITY_LABELS[1] : SEVERITY_LABELS[2];
                 updated[cid] = { ...meta, combined_severity: sev };
             } else {
                 updated[cid] = { ...meta, combined_severity: undefined };
