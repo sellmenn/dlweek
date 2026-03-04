@@ -79,7 +79,9 @@ function PostMarker({ post, cluster, onClick, analyzed }: { post: Post; cluster:
               src={post.image}
               alt=""
               style={{ width: '100%', maxHeight: 160, objectFit: 'cover', display: 'block' }}
-              loading="lazy"
+              onLoad={() => {
+                markerRef.current?.getPopup()?.update()
+              }}
             />
           )}
           <div style={{ padding: '8px 12px' }}>
