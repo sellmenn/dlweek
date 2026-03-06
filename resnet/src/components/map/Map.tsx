@@ -358,18 +358,27 @@ const Map = () => {
           }
         }
 
-        // If this is the last progress event, treat as done
-        if (data.current >= data.total) {
-          es.close();
-          dripTargetRef.current = allPostsRef.current.length;
-          inferDoneRef.current = true;
-        }
       }
 
       if (data.type === "done") {
         es.close();
         dripTargetRef.current = allPostsRef.current.length;
         inferDoneRef.current = true;
+
+        // Apply authoritative cluster scores from backend (includes fallback for clusters with no informative posts)
+        if (data.cluster_scores) {
+          const updated = { ...clustersRef.current };
+          for (const [cid, scores] of Object.entries(data.cluster_scores) as [string, Record<string, unknown>][]) {
+            if (updated[cid]) {
+              updated[cid] = {
+                ...updated[cid],
+                combined_severity: scores.combined_severity as "severe" | "mild" | "little_or_none" | undefined,
+              };
+            }
+          }
+          clustersRef.current = updated;
+          setClusters(updated);
+        }
       }
     };
 

@@ -253,9 +253,11 @@ def load_disaster_posts(tsv_path, image_base, sample_n=1000, seed=42):
 
 
 def nearest_city(lat, lon, config):
+    """Return (name, population) of the nearest cluster center."""
     centers = config["cluster_centers"]
-    dists = [((lat - c[0])**2 + (lon - c[1])**2, c[2]) for c in centers]
-    return min(dists, key=lambda x: x[0])[1]
+    dists = [((lat - c[0])**2 + (lon - c[1])**2, c[2], c[3]) for c in centers]
+    best = min(dists, key=lambda x: x[0])
+    return best[1], best[2]
 
 
 # ── Global state ──────────────────────────────────────────────────────────────
@@ -294,10 +296,12 @@ def run_dbscan(config, min_samples=3):
         members = [p for p in POSTS if p.get("cluster_label") == cid]
         mean_lat = float(np.mean([p["latitude"] for p in members]))
         mean_lon = float(np.mean([p["longitude"] for p in members]))
+        name, population = nearest_city(mean_lat, mean_lon, config)
         CLUSTER_META[str(cid)] = {
-            "name": nearest_city(mean_lat, mean_lon, config),
+            "name": name,
             "centroid": [mean_lat, mean_lon],
             "count": len(members),
+            "population": population,
         }
     n_clusters = len(cluster_ids)
     n_noise = int(np.sum(labels == -1))

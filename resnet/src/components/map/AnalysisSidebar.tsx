@@ -36,7 +36,8 @@ const SEV_LABELS: Record<string, string> = {
   little_or_none: "Low",
 };
 
-const PEOPLE_PER_POST = 15;
+// Scaling factor: fraction of city population estimated affected per unit of social media signal density
+const AFFECTED_ALPHA = 0.01;
 
 const card: React.CSSProperties = {
   background: "rgba(255, 255, 255, 0.04)",
@@ -317,7 +318,14 @@ export default function AnalysisWidgets({
   const totalPosts = activePosts.length;
   const clusterCount = Object.keys(postsByCluster).length;
   const globalElapsed = formatElapsed(analysisStartTime);
-  const globalPeople = totalPosts * PEOPLE_PER_POST;
+  const globalPeople = totalPosts > 0
+    ? Math.round(
+        Object.entries(postsByCluster).reduce((sum, [cid, posts]) => {
+          const pop = clusters[cid]?.population ?? 0;
+          return sum + pop * (posts.length / totalPosts) * AFFECTED_ALPHA;
+        }, 0),
+      )
+    : 0;
 
   const globalSevCounts: Record<string, number> = {
     severe: 0,
@@ -350,7 +358,9 @@ export default function AnalysisWidgets({
   const focusedSevScore = avgSeverityScore(focusedPosts);
   const focusedElapsed = formatElapsed(analysisStartTime);
   const focusedSpan = timeSpan(focusedPosts);
-  const focusedPeople = focusedPosts.length * PEOPLE_PER_POST;
+  const focusedPeople = totalPosts > 0 && focusedClusterData?.population
+    ? Math.round(focusedClusterData.population * (focusedPosts.length / totalPosts) * AFFECTED_ALPHA)
+    : 0;
 
   const focusedSevCounts: Record<string, number> = {
     severe: 0,

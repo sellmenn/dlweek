@@ -176,6 +176,12 @@ $$R_{kc} = \frac{1}{|C_k|} \sum_{i \in C_k} \hat{y}_{ic}$$
 
 The mean of individual post scores per resource category $c$ across all posts in cluster $k$.
 
+**Estimated Affected Population:**
+
+$$A_k = P_k \cdot \frac{n_k}{N} \cdot \alpha$$
+
+where $P_k$ is the population of cluster $k$'s nearest city, $n_k$ is the number of posts in cluster $k$, $N$ is the total number of posts, and $\alpha = 0.01$ is a scaling factor representing the estimated fraction of a city's population affected per unit of social media signal density. The global estimate is $\sum_k A_k$.
+
 **Validation Metric — Mean Absolute Error (MAE):**
 
 $$\text{MAE} = \frac{1}{5} \sum_{c=1}^{5} \frac{1}{N} \sum_{i=1}^{N} |y_{ic} - \hat{y}_{ic}|$$
