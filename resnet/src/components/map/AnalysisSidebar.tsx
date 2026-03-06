@@ -259,6 +259,7 @@ interface Props {
   sliderValue: number;
   focusedCluster: string | null;
   onFocusCluster: (cid: string | null) => void;
+  onPostSelect?: (post: AnalyzedPost) => void;
   analysisStartTime: number;
   llmSummary: string;
   summaryLoading: boolean;
@@ -271,6 +272,7 @@ export default function AnalysisWidgets({
   sliderValue,
   focusedCluster,
   onFocusCluster,
+  onPostSelect,
   analysisStartTime,
   llmSummary,
   summaryLoading,
@@ -832,16 +834,26 @@ export default function AnalysisWidgets({
               return (
                 <div
                   key={i}
+                  onClick={() => onPostSelect?.(post)}
                   style={{
                     display: "flex",
                     alignItems: "flex-start",
                     gap: 10,
-                    padding: "8px 0",
+                    padding: "8px 6px",
                     borderBottom:
                       i < sortedFocusedPosts.length - 1
                         ? "1px solid rgba(255,255,255,0.04)"
                         : "none",
+                    cursor: "pointer",
+                    borderRadius: 8,
+                    transition: "background 0.15s",
                   }}
+                  onMouseEnter={(e) =>
+                    (e.currentTarget.style.background = "rgba(255,255,255,0.05)")
+                  }
+                  onMouseLeave={(e) =>
+                    (e.currentTarget.style.background = "transparent")
+                  }
                 >
                   {post.image && (
                     <img

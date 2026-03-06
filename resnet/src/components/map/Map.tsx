@@ -141,6 +141,7 @@ const Map = () => {
   const [mapZoom, setMapZoom] = useState(9);
   const [disasterLoading, setDisasterLoading] = useState(false);
   const [sampleSize, setSampleSize] = useState(500);
+  const [selectedPostKey, setSelectedPostKey] = useState<string | null>(null);
 
   const allPostsRef = useRef<Post[]>([]);
   const clustersRef = useRef<Record<string, Cluster>>({});
@@ -417,6 +418,7 @@ const Map = () => {
   const handleFocusCluster = useCallback(
     (cid: string | null) => {
       setFocusedCluster(cid);
+      setSelectedPostKey(null);
       if (cid && clusters[cid]) {
         setFlyTarget(clusters[cid].centroid);
         setFlyZoom(12);
@@ -426,6 +428,16 @@ const Map = () => {
       }
     },
     [clusters, mapCenter],
+  );
+
+  const handlePostSelect = useCallback(
+    (post: Post) => {
+      const key = `${post.lat},${post.lon},${post.caption}`;
+      setSelectedPostKey(key);
+      setFlyTarget([post.lat, post.lon]);
+      setFlyZoom(14);
+    },
+    [],
   );
 
   const statusText = {
@@ -468,6 +480,7 @@ const Map = () => {
           posts={visiblePosts}
           clusters={clusters}
           analyzedPosts={analyzedPosts}
+          selectedPostKey={selectedPostKey}
           onPostClick={(post) => {
             if (phase !== "done") return;
             const cid = String(post.cluster);
@@ -532,6 +545,7 @@ const Map = () => {
             sliderValue={sliderValue}
             focusedCluster={focusedCluster}
             onFocusCluster={handleFocusCluster}
+            onPostSelect={handlePostSelect}
             analysisStartTime={analysisStartTime}
             llmSummary={llmSummary}
             summaryLoading={summaryLoading}

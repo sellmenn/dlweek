@@ -23,6 +23,7 @@ interface Props {
   clusters: Record<string, Cluster>
   onPostClick?: (post: Post) => void
   analyzedPosts?: AnalyzedPost[]
+  selectedPostKey?: string | null
 }
 
 const makeGlowIcon = (color: string) => L.divIcon({
@@ -53,7 +54,7 @@ function getIcon(cluster: Cluster | undefined) {
   return GLOW_ICONS[cluster.combined_severity] ?? DEFAULT_ICON
 }
 
-function PostMarker({ post, cluster, onClick, analyzed }: { post: Post; cluster: Cluster; onClick?: () => void; analyzed?: AnalyzedPost }) {
+function PostMarker({ post, cluster, onClick, analyzed, isSelected }: { post: Post; cluster: Cluster; onClick?: () => void; analyzed?: AnalyzedPost; isSelected?: boolean }) {
   const markerRef = useRef<L.Marker>(null)
 
   useEffect(() => {
@@ -61,6 +62,12 @@ function PostMarker({ post, cluster, onClick, analyzed }: { post: Post; cluster:
       markerRef.current.setIcon(getIcon(cluster))
     }
   }, [cluster?.combined_severity])
+
+  useEffect(() => {
+    if (isSelected && markerRef.current) {
+      markerRef.current.openPopup()
+    }
+  }, [isSelected])
 
   return (
     <Marker
@@ -137,7 +144,7 @@ function PostMarker({ post, cluster, onClick, analyzed }: { post: Post; cluster:
   )
 }
 
-export default function PostMarkers({ posts, clusters, onPostClick, analyzedPosts }: Props) {
+export default function PostMarkers({ posts, clusters, onPostClick, analyzedPosts, selectedPostKey }: Props) {
   // Build a lookup from (lat,lon,caption) to analyzed data
   const analyzedMap = new Map<string, AnalyzedPost>()
   if (analyzedPosts) {
@@ -151,8 +158,9 @@ export default function PostMarkers({ posts, clusters, onPostClick, analyzedPost
       {posts.map((post, idx) => {
         const cluster = clusters[String(post.cluster)]
         if (!cluster) return null
-        const analyzed = analyzedMap.get(`${post.lat},${post.lon},${post.caption}`)
-        return <PostMarker key={idx} post={post} cluster={cluster} onClick={onPostClick ? () => onPostClick(post) : undefined} analyzed={analyzed} />
+        const key = `${post.lat},${post.lon},${post.caption}`
+        const analyzed = analyzedMap.get(key)
+        return <PostMarker key={idx} post={post} cluster={cluster} onClick={onPostClick ? () => onPostClick(post) : undefined} analyzed={analyzed} isSelected={selectedPostKey === key} />
       })}
     </>
   )
