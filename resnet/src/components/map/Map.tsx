@@ -151,7 +151,7 @@ const Map = () => {
   const dripTargetRef = useRef(0);
   const inferDoneRef = useRef(false);
   const clusterSeverityRef = useRef<Record<string, number[]>>({});
-  const postSeverityRef = useRef<Array<{ cluster: string; weight: number }>>(
+  const postSeverityRef = useRef<Array<{ cluster: string; weight: number; informative: boolean }>>(
     [],
   );
   // Per-post analyzed data (scores + severity) accumulated during inference
@@ -335,21 +335,26 @@ const Map = () => {
             severe: 1,
           };
           const w = WEIGHTS[data.severity_label] ?? 0;
-          postSeverityRef.current.push({ cluster: cid, weight: w });
-          if (!clusterSeverityRef.current[cid])
-            clusterSeverityRef.current[cid] = [];
-          clusterSeverityRef.current[cid].push(w);
+          const isInformative = !!data.informative;
+          postSeverityRef.current.push({ cluster: cid, weight: w, informative: isInformative });
 
-          const arr = clusterSeverityRef.current[cid];
-          const avg = arr.reduce((a, b) => a + b, 0) / arr.length;
-          const severity =
-            avg < 0.2 ? "little_or_none" : avg < 0.3 ? "mild" : "severe";
+          // Only informative posts contribute to real-time severity
+          if (isInformative) {
+            if (!clusterSeverityRef.current[cid])
+              clusterSeverityRef.current[cid] = [];
+            clusterSeverityRef.current[cid].push(w);
 
-          const updated = { ...clustersRef.current };
-          if (updated[cid]) {
-            updated[cid] = { ...updated[cid], combined_severity: severity };
-            clustersRef.current = updated;
-            setClusters(updated);
+            const arr = clusterSeverityRef.current[cid];
+            const avg = arr.reduce((a, b) => a + b, 0) / arr.length;
+            const severity =
+              avg < 0.2 ? "little_or_none" : avg < 0.3 ? "mild" : "severe";
+
+            const updated = { ...clustersRef.current };
+            if (updated[cid]) {
+              updated[cid] = { ...updated[cid], combined_severity: severity };
+              clustersRef.current = updated;
+              setClusters(updated);
+            }
           }
         }
 
@@ -385,7 +390,8 @@ const Map = () => {
     const SEVERITY_LABELS = ["little_or_none", "mild", "severe"] as const;
     const accum: Record<string, number[]> = {};
     for (let i = 0; i < n && i < postSeverityRef.current.length; i++) {
-      const { cluster, weight } = postSeverityRef.current[i];
+      const { cluster, weight, informative } = postSeverityRef.current[i];
+      if (!informative) continue;
       if (!accum[cluster]) accum[cluster] = [];
       accum[cluster].push(weight);
     }
