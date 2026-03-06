@@ -3,16 +3,21 @@ Training pipeline for the ResourceClassifier.
 
 Usage:
     python train.py --labels data/labels.json --data-dir data/ --epochs 50 --output checkpoints/model.pt
+
+Uses leave-one-disaster-out cross-validation: trains on 3 disasters, validates
+on the held-out 1, rotating through all 4. The final model is retrained on all data.
 """
 
 import argparse
 import json
 import os
+import re
 
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader, random_split
+from collections import Counter
+from torch.utils.data import DataLoader, Dataset, Subset, WeightedRandomSampler
 
 from encoder import CLIPEncoder, FEATURE_DIM
 from model import ResourceClassifier, RESOURCE_CATEGORIES, NUM_CATEGORIES
@@ -21,9 +26,10 @@ from model import ResourceClassifier, RESOURCE_CATEGORIES, NUM_CATEGORIES
 class CrisisDataset(Dataset):
     """Dataset of CLIP-encoded crisis posts with resource need labels."""
 
-    def __init__(self, features: torch.Tensor, labels: torch.Tensor):
+    def __init__(self, features: torch.Tensor, labels: torch.Tensor, disasters: list[str]):
         self.features = features
         self.labels = labels
+        self.disasters = disasters
 
     def __len__(self):
         return len(self.features)
@@ -32,10 +38,23 @@ class CrisisDataset(Dataset):
         return self.features[idx], self.labels[idx]
 
 
+def extract_disaster(image_path: str) -> str:
+    """Extract disaster name from image_path like 'data_image/california_wildfires/...'."""
+    match = re.match(r"data_image/([^/]+)/", image_path)
+    return match.group(1) if match else "unknown"
+
+
+def balanced_sampler(disasters: list[str]) -> WeightedRandomSampler:
+    """Create a WeightedRandomSampler that balances across disaster types."""
+    counts = Counter(disasters)
+    weights = [1.0 / counts[d] for d in disasters]
+    return WeightedRandomSampler(weights, num_samples=len(disasters), replacement=True)
+
+
 def precompute_features(labels_file: str, data_dir: str, encoder: CLIPEncoder,
                         cache_path: str = "data/cached_features.pt") -> tuple:
     """
-    Load labeled data, encode with CLIP, return (features, labels) tensors.
+    Load labeled data, encode with CLIP, return (features, labels, disasters) tensors/lists.
     Caches the result to cache_path so subsequent runs skip CLIP encoding.
 
     Each sample is encoded as:
@@ -44,13 +63,17 @@ def precompute_features(labels_file: str, data_dir: str, encoder: CLIPEncoder,
     if os.path.exists(cache_path):
         print(f"  Loading cached features from {cache_path}")
         cached = torch.load(cache_path, weights_only=True)
-        return cached["features"], cached["labels"]
+        disasters = cached.get("disasters", [])
+        if isinstance(disasters, torch.Tensor):
+            disasters = disasters.tolist()
+        return cached["features"], cached["labels"], disasters
 
     with open(labels_file, "r") as f:
         samples = json.load(f)
 
     all_features = []
     all_labels = []
+    all_disasters = []
 
     for i, sample in enumerate(samples):
         image_path = os.path.join(data_dir, sample["image_path"])
@@ -68,14 +91,16 @@ def precompute_features(labels_file: str, data_dir: str, encoder: CLIPEncoder,
         label = torch.tensor([sample["labels"][cat] for cat in RESOURCE_CATEGORIES], dtype=torch.float32)
         all_labels.append(label)
 
+        all_disasters.append(extract_disaster(sample["image_path"]))
+
     features = torch.stack(all_features)
     labels = torch.stack(all_labels)
 
     os.makedirs(os.path.dirname(cache_path) or ".", exist_ok=True)
-    torch.save({"features": features, "labels": labels}, cache_path)
+    torch.save({"features": features, "labels": labels, "disasters": all_disasters}, cache_path)
     print(f"  Cached features to {cache_path}")
 
-    return features, labels
+    return features, labels, all_disasters
 
 
 def train(model, train_loader, val_loader, epochs, lr, device, patience=20):
@@ -227,7 +252,6 @@ def main():
     parser.add_argument("--epochs", type=int, default=200)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--val-split", type=float, default=0.2)
     args = parser.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
@@ -237,31 +261,59 @@ def main():
     encoder = CLIPEncoder(device=device)
 
     print("Encoding training data...")
-    features, labels = precompute_features(args.labels, args.data_dir, encoder)
+    features, labels, disasters = precompute_features(args.labels, args.data_dir, encoder)
     print(f"Encoded {len(features)} samples")
 
-    # Split into train/val
-    dataset = CrisisDataset(features, labels)
-    val_size = int(len(dataset) * args.val_split)
-    train_size = len(dataset) - val_size
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+    dataset = CrisisDataset(features, labels, disasters)
+    unique_disasters = sorted(set(disasters))
+    print(f"Disasters: {unique_disasters}")
 
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=args.batch_size)
+    # Leave-one-disaster-out cross-validation
+    fold_results = []
+    for fold, held_out in enumerate(unique_disasters):
+        train_idx = [i for i, d in enumerate(disasters) if d != held_out]
+        val_idx = [i for i, d in enumerate(disasters) if d == held_out]
 
-    print(f"Train: {train_size}, Val: {val_size}")
+        train_disasters = [disasters[i] for i in train_idx]
+        train_loader = DataLoader(Subset(dataset, train_idx), batch_size=args.batch_size, sampler=balanced_sampler(train_disasters))
+        val_loader = DataLoader(Subset(dataset, val_idx), batch_size=args.batch_size)
 
-    model = ResourceClassifier()
-    print("Training...")
-    model, history = train(model, train_loader, val_loader, args.epochs, args.lr, device)
+        print(f"\n{'='*60}")
+        print(f"Fold {fold+1}/{len(unique_disasters)}: held out = {held_out}")
+        print(f"  Train: {len(train_idx)}, Val: {len(val_idx)}")
+
+        model = ResourceClassifier()
+        model, history = train(model, train_loader, val_loader, args.epochs, args.lr, device)
+
+        final_mae = history["val_mae"][-1] if history["val_mae"] else float("inf")
+        fold_results.append({"disaster": held_out, "val_mae": final_mae, "history": history})
+        print(f"  Final Val MAE: {final_mae:.4f}")
+
+        # Plot per-fold metrics
+        plot_dir = os.path.join(os.path.dirname(args.output) or ".", "plots", f"fold_{held_out}")
+        plot_training(history, plot_dir)
+
+    # Summary
+    print(f"\n{'='*60}")
+    print("Leave-one-disaster-out results:")
+    for r in fold_results:
+        print(f"  {r['disaster']:30s} Val MAE: {r['val_mae']:.4f}")
+    avg_mae = np.mean([r["val_mae"] for r in fold_results])
+    print(f"  {'Average':30s} Val MAE: {avg_mae:.4f}")
+
+    # Final model: retrain on all data
+    print(f"\n{'='*60}")
+    print("Retraining final model on all data...")
+    all_loader = DataLoader(dataset, batch_size=args.batch_size, sampler=balanced_sampler(disasters))
+    final_model = ResourceClassifier()
+    final_model, final_history = train(final_model, all_loader, all_loader, args.epochs, args.lr, device)
 
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
-    torch.save(model.state_dict(), args.output)
+    torch.save(final_model.state_dict(), args.output)
     print(f"Model saved to {args.output}")
 
-    # Plot training metrics
-    plot_dir = os.path.join(os.path.dirname(args.output) or ".", "plots")
-    plot_training(history, plot_dir)
+    plot_dir = os.path.join(os.path.dirname(args.output) or ".", "plots", "final")
+    plot_training(final_history, plot_dir)
 
 
 if __name__ == "__main__":

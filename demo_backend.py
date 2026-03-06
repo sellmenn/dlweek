@@ -91,32 +91,86 @@ def tweet_id_to_timestamp(tweet_id: int) -> float:
     return ms / 1000.0
 
 
-# ── Coordinate assignment ─────────────────────────────────────────────────────
+# ── Per-disaster geographic configs ───────────────────────────────────────────
 
-CLUSTER_CENTERS = [
-    (18.4500, -66.0700, "San Juan",      2200000, 0.08),
-    (18.0111, -66.6141, "Ponce",          160000,  0.04),
-    (18.2013, -67.1397, "Mayagüez",       90000,   0.035),
-    (18.4725, -66.7156, "Arecibo",        87000,   0.03),
-    (18.2341, -66.0485, "Caguas",         130000,  0.04),
-    (18.1496, -65.7994, "Humacao",        55000,   0.025),
-    (18.3358, -65.6602, "Fajardo",        35000,   0.02),
-    (18.1745, -66.9905, "San Germán",     33000,   0.02),
-]
+DISASTER_CONFIGS = {
+    "hurricane_maria": {
+        "label": "Hurricane Maria",
+        "tsv": "hurricane_maria_final_data.tsv",
+        "image_dir": "hurricane_maria",
+        "map_center": [18.45, -66.07],
+        "map_zoom": 9,
+        "cluster_centers": [
+            (18.4500, -66.0700, "San Juan",      2200000, 0.08),
+            (18.0111, -66.6141, "Ponce",          160000,  0.04),
+            (18.2013, -67.1397, "Mayagüez",       90000,   0.035),
+            (18.4725, -66.7156, "Arecibo",        87000,   0.03),
+            (18.2341, -66.0485, "Caguas",         130000,  0.04),
+            (18.1496, -65.7994, "Humacao",        55000,   0.025),
+            (18.3358, -65.6602, "Fajardo",        35000,   0.02),
+            (18.1745, -66.9905, "San Germán",     33000,   0.02),
+        ],
+        "polygon": [
+            (18.515, -67.165), (18.510, -67.030), (18.490, -66.940), (18.500, -66.850),
+            (18.485, -66.750), (18.490, -66.600), (18.480, -66.450), (18.475, -66.300),
+            (18.470, -66.150), (18.465, -66.050), (18.455, -65.960), (18.445, -65.880),
+            (18.400, -65.790), (18.360, -65.640), (18.340, -65.590),
+            (18.260, -65.600), (18.160, -65.750), (18.120, -65.840),
+            (18.050, -65.900), (17.970, -66.050), (17.960, -66.200), (17.955, -66.400),
+            (17.980, -66.560), (17.990, -66.600), (17.970, -66.800), (17.960, -66.950),
+            (18.060, -67.100), (18.110, -67.160), (18.170, -67.200), (18.250, -67.190),
+            (18.340, -67.200), (18.400, -67.190), (18.460, -67.180),
+            (18.515, -67.165),
+        ],
+    },
+    "hurricane_irma": {
+        "label": "Hurricane Irma",
+        "tsv": "hurricane_irma_final_data.tsv",
+        "image_dir": "hurricane_irma",
+        "map_center": [25.76, -80.19],
+        "map_zoom": 7,
+        "cluster_centers": [
+            (25.7617, -80.1918, "Miami",           470000, 0.08),
+            (26.1224, -80.1373, "Fort Lauderdale",  183000, 0.05),
+            (26.7153, -80.0534, "West Palm Beach",  111000, 0.04),
+            (24.5551, -81.7800, "Key West",          25000, 0.03),
+            (25.0343, -80.9473, "Key Largo",         10000, 0.025),
+            (26.6406, -81.8723, "Fort Myers",        87000, 0.04),
+            (27.3364, -82.5307, "Sarasota",          57000, 0.035),
+            (27.9506, -82.4572, "Tampa",            400000, 0.06),
+        ],
+        "polygon": [
+            (30.75, -87.60), (30.70, -86.50), (30.50, -85.00), (30.20, -83.50),
+            (29.80, -82.00), (29.50, -81.20), (28.80, -80.60), (27.60, -80.30),
+            (26.50, -80.05), (25.80, -80.10), (25.20, -80.20), (24.55, -81.80),
+            (24.50, -82.10), (25.00, -81.60), (26.00, -81.90), (26.60, -82.20),
+            (27.50, -82.80), (28.20, -82.80), (28.90, -83.00), (29.60, -83.50),
+            (29.90, -84.50), (30.10, -85.50), (30.40, -86.50), (30.75, -87.60),
+        ],
+    },
+    "mexico_earthquake": {
+        "label": "Mexico Earthquake",
+        "tsv": "mexico_earthquake_final_data.tsv",
+        "image_dir": "mexico_earthquake",
+        "map_center": [19.43, -99.13],
+        "map_zoom": 8,
+        "cluster_centers": [
+            (19.4326, -99.1332, "Mexico City",  9200000, 0.06),
+            (18.8500, -99.2000, "Cuernavaca",    366000, 0.03),
+            (19.0500, -98.2000, "Puebla",       1700000, 0.04),
+            (18.3400, -99.5100, "Iguala",        140000, 0.025),
+            (18.9200, -99.2300, "Jojutla",        58000, 0.02),
+            (19.2900, -99.6600, "Toluca",        900000, 0.035),
+        ],
+        "polygon": [
+            (20.20, -100.50), (20.20, -98.00), (19.80, -97.50), (19.20, -97.00),
+            (18.20, -97.50), (17.80, -98.50), (17.80, -99.50), (18.00, -100.50),
+            (18.50, -101.00), (19.50, -101.00), (20.20, -100.50),
+        ],
+    },
+}
 
-# Simplified Puerto Rico coastline polygon (clockwise, ~30 vertices)
-PR_POLYGON = [
-    (18.515, -67.165), (18.510, -67.030), (18.490, -66.940), (18.500, -66.850),
-    (18.485, -66.750), (18.490, -66.600), (18.480, -66.450), (18.475, -66.300),
-    (18.470, -66.150), (18.465, -66.050), (18.455, -65.960), (18.445, -65.880),
-    (18.400, -65.790), (18.360, -65.640), (18.340, -65.590),
-    (18.260, -65.600), (18.160, -65.750), (18.120, -65.840),
-    (18.050, -65.900), (17.970, -66.050), (17.960, -66.200), (17.955, -66.400),
-    (17.980, -66.560), (17.990, -66.600), (17.970, -66.800), (17.960, -66.950),
-    (18.060, -67.100), (18.110, -67.160), (18.170, -67.200), (18.250, -67.190),
-    (18.340, -67.200), (18.400, -67.190), (18.460, -67.180),
-    (18.515, -67.165),
-]
+ACTIVE_DISASTER = "hurricane_maria"
 
 
 def point_in_polygon(lat, lon, polygon):
@@ -133,21 +187,23 @@ def point_in_polygon(lat, lon, polygon):
     return inside
 
 
-def assign_coordinates(posts, seed=42):
+def assign_coordinates(posts, config, seed=42):
+    centers = config["cluster_centers"]
+    polygon = config["polygon"]
     rng = np.random.RandomState(seed)
-    pops = np.array([c[3] for c in CLUSTER_CENTERS], dtype=float)
+    pops = np.array([c[3] for c in centers], dtype=float)
     weights = pops / pops.sum()
     cum = np.cumsum(weights)
 
     for post in posts:
         h = int(hashlib.md5(str(post["tweet_id"]).encode()).hexdigest(), 16)
         frac = (h % 10000) / 10000.0
-        idx = min(int(np.searchsorted(cum, frac)), len(CLUSTER_CENTERS) - 1)
-        lat, lon, _, _, spread = CLUSTER_CENTERS[idx]
+        idx = min(int(np.searchsorted(cum, frac)), len(centers) - 1)
+        lat, lon, _, _, spread = centers[idx]
         for _ in range(50):
             new_lat = lat + rng.normal(0, spread)
             new_lon = lon + rng.normal(0, spread)
-            if point_in_polygon(new_lat, new_lon, PR_POLYGON):
+            if point_in_polygon(new_lat, new_lon, polygon):
                 break
         else:
             new_lat = lat + rng.normal(0, 0.005)
@@ -158,7 +214,7 @@ def assign_coordinates(posts, seed=42):
     return posts
 
 
-def load_hurricane_maria(tsv_path, image_base, sample_n=1000, seed=42):
+def load_disaster_posts(tsv_path, image_base, sample_n=1000, seed=42):
     posts = []
     with open(tsv_path, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f, delimiter="\t")
@@ -192,8 +248,9 @@ def load_hurricane_maria(tsv_path, image_base, sample_n=1000, seed=42):
     return posts
 
 
-def nearest_city(lat, lon):
-    dists = [((lat - c[0])**2 + (lon - c[1])**2, c[2]) for c in CLUSTER_CENTERS]
+def nearest_city(lat, lon, config):
+    centers = config["cluster_centers"]
+    dists = [((lat - c[0])**2 + (lon - c[1])**2, c[2]) for c in centers]
     return min(dists, key=lambda x: x[0])[1]
 
 
@@ -205,15 +262,16 @@ MODEL = None
 SEVERITY_MODEL = None
 SEVERITY_PROCESSOR = None
 DEVICE = "cpu"
-IMAGE_DIR = "hurricane_maria"
 CLUSTER_META = {}
+SAMPLE_N = 500
+ANNOTATIONS_DIR = ""
 
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "demo_output")
 
 
 # ── DBSCAN ────────────────────────────────────────────────────────────────────
 
-def run_dbscan(eps=0.15, min_samples=3):
+def run_dbscan(config, eps=0.15, min_samples=3):
     """Run DBSCAN on all posts and store labels + cluster metadata."""
     global CLUSTER_META
     coords = np.array([[p["latitude"], p["longitude"]] for p in POSTS])
@@ -230,13 +288,29 @@ def run_dbscan(eps=0.15, min_samples=3):
         mean_lat = float(np.mean([p["latitude"] for p in members]))
         mean_lon = float(np.mean([p["longitude"] for p in members]))
         CLUSTER_META[str(cid)] = {
-            "name": nearest_city(mean_lat, mean_lon),
+            "name": nearest_city(mean_lat, mean_lon, config),
             "centroid": [mean_lat, mean_lon],
             "count": len(members),
         }
     n_clusters = len(cluster_ids)
     n_noise = int(np.sum(labels == -1))
     print(f"  DBSCAN: {n_clusters} clusters, {n_noise} noise points")
+
+
+def switch_disaster(disaster_key):
+    """Load posts for a disaster and run clustering."""
+    global POSTS, ACTIVE_DISASTER, CLUSTER_META
+    config = DISASTER_CONFIGS[disaster_key]
+    ACTIVE_DISASTER = disaster_key
+
+    tsv_path = os.path.join(ANNOTATIONS_DIR, config["tsv"])
+    image_base = os.path.abspath(config["image_dir"])
+
+    print(f"Switching to {config['label']}...")
+    POSTS = load_disaster_posts(tsv_path, image_base, sample_n=SAMPLE_N)
+    POSTS = assign_coordinates(POSTS, config)
+    CLUSTER_META = {}
+    run_dbscan(config)
 
 
 # ── API routes ────────────────────────────────────────────────────────────────
@@ -249,37 +323,79 @@ def index():
 
 @app.route("/images/<path:filepath>")
 def serve_image(filepath):
-    """
-    Serve crisis images from the hurricane_maria directory.
+    """Serve crisis images from the active disaster's image directory."""
+    config = DISASTER_CONFIGS[ACTIVE_DISASTER]
+    image_dir = os.path.abspath(config["image_dir"])
+    return send_from_directory(image_dir, filepath)
 
-    Args:
-        filepath: Relative path within the hurricane_maria image directory
-                  (e.g., "25_9_2017/901646074527535105_0.jpg")
 
-    Returns:
-        The image file with appropriate MIME type.
-    """
-    return send_from_directory(IMAGE_DIR, filepath)
+def count_available_posts(config):
+    """Count how many posts have valid images for a disaster config."""
+    tsv_path = os.path.join(ANNOTATIONS_DIR, config["tsv"])
+    image_base = os.path.abspath(config["image_dir"])
+    count = 0
+    try:
+        with open(tsv_path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f, delimiter="\t")
+            for row in reader:
+                image_rel = row.get("image_path", "").strip()
+                caption = row.get("tweet_text", "").strip()
+                if not image_rel or not caption:
+                    continue
+                parts = image_rel.split("/")
+                if len(parts) < 3:
+                    continue
+                local_path = os.path.join(image_base, *parts[2:])
+                if os.path.exists(local_path):
+                    count += 1
+    except FileNotFoundError:
+        pass
+    return count
+
+
+@app.route("/api/disasters")
+def api_disasters():
+    """Return available disasters and the currently active one."""
+    return jsonify({
+        "disasters": [
+            {"key": k, "label": v["label"], "max_posts": count_available_posts(v)}
+            for k, v in DISASTER_CONFIGS.items()
+        ],
+        "active": ACTIVE_DISASTER,
+        "sample": SAMPLE_N,
+    })
+
+
+@app.route("/api/load")
+def api_load():
+    """Switch disaster and/or sample size. Query params: ?disaster=...&sample=..."""
+    from flask import request
+    global SAMPLE_N
+    disaster = request.args.get("disaster", "").strip()
+    sample = request.args.get("sample", "").strip()
+    if disaster and disaster not in DISASTER_CONFIGS:
+        return jsonify({"error": f"Unknown disaster: {disaster}"}), 400
+    if sample:
+        SAMPLE_N = max(50, min(5000, int(sample)))
+    if disaster:
+        switch_disaster(disaster)
+    else:
+        switch_disaster(ACTIVE_DISASTER)
+    return jsonify({"status": "ok", "active": ACTIVE_DISASTER, "sample": SAMPLE_N})
 
 
 @app.route("/api/posts")
 def api_posts():
-    """
-    Return all posts with pre-computed DBSCAN cluster labels.
-
-    Returns JSON:
-        posts: List of post objects with lat, lon, caption, timestamp, date,
-               image URL, and cluster label.
-        categories: List of resource category names.
-        clusters: Dict mapping cluster ID to metadata (name, centroid, count).
-    """
+    """Return all posts with pre-computed DBSCAN cluster labels."""
+    config = DISASTER_CONFIGS[ACTIVE_DISASTER]
+    image_dir_name = config["image_dir"]
     out = []
     for p in POSTS:
         ts = p["timestamp"]
         date_str = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M") if ts > 0 else "N/A"
         img_rel = p["image_path"]
-        if "hurricane_maria/" in img_rel:
-            img_rel = img_rel.split("hurricane_maria/", 1)[1]
+        if f"{image_dir_name}/" in img_rel:
+            img_rel = img_rel.split(f"{image_dir_name}/", 1)[1]
         out.append({
             "lat": round(p["latitude"], 6),
             "lon": round(p["longitude"], 6),
@@ -293,6 +409,8 @@ def api_posts():
         "posts": out,
         "categories": RESOURCE_CATEGORIES,
         "clusters": CLUSTER_META,
+        "map_center": config["map_center"],
+        "map_zoom": config["map_zoom"],
     })
 
 
@@ -380,7 +498,8 @@ def api_summarize():
 
     data = __import__("flask").request.get_json(force=True)
 
-    prompt = f"""You are a crisis response analyst. Based on the following post-disaster analysis data from Hurricane Maria in Puerto Rico, provide a concise situation report with actionable recommendations.
+    disaster_label = DISASTER_CONFIGS[ACTIVE_DISASTER]["label"]
+    prompt = f"""You are a crisis response analyst. Based on the following post-disaster analysis data from {disaster_label}, provide a concise situation report with actionable recommendations.
 
 Data:
 - Total posts analyzed: {data.get('totalPosts', 0)}
@@ -417,28 +536,25 @@ Analysis of 500 social media posts reveals significant damage concentration in t
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="Hurricane Maria demo API server")
+    parser = argparse.ArgumentParser(description="Crisis demo API server")
     parser.add_argument("--sample", type=int, default=500)
     parser.add_argument("--model", default="checkpoints/model.pt")
     parser.add_argument("--severity-model", default="checkpoints/vit-crisis-damage-final")
-    parser.add_argument("--tsv", default="CrisisMMD_v2.0/annotations/hurricane_maria_final_data.tsv")
-    parser.add_argument("--image-dir", default="hurricane_maria")
+    parser.add_argument("--annotations-dir", default="CrisisMMD_v2.0/annotations")
+    parser.add_argument("--disaster", default="hurricane_maria", choices=list(DISASTER_CONFIGS.keys()))
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
 
-    global POSTS, ENCODER, MODEL, SEVERITY_MODEL, SEVERITY_PROCESSOR, DEVICE, IMAGE_DIR
+    global ENCODER, MODEL, SEVERITY_MODEL, SEVERITY_PROCESSOR, DEVICE, SAMPLE_N, ANNOTATIONS_DIR
 
     DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
     print(f"Device: {DEVICE}")
 
-    IMAGE_DIR = os.path.abspath(args.image_dir)
+    SAMPLE_N = args.sample
+    ANNOTATIONS_DIR = args.annotations_dir
 
     print("Loading data...")
-    POSTS = load_hurricane_maria(args.tsv, args.image_dir, sample_n=args.sample)
-    POSTS = assign_coordinates(POSTS)
-
-    print("Running DBSCAN...")
-    run_dbscan()
+    switch_disaster(args.disaster)
 
     print("Loading CLIP encoder...")
     ENCODER = CLIPEncoder(device=DEVICE)

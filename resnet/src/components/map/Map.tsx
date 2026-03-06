@@ -59,22 +59,43 @@ function MapEventHandler({
 /** Flies the map to a target when it changes. Suppresses MapEventHandler during flight. */
 function MapFlyTo({
   target,
+  zoom,
   suppressRef,
 }: {
   target: [number, number] | null;
+  zoom?: number;
   suppressRef: React.MutableRefObject<boolean>;
 }) {
   const map = useMap();
   useEffect(() => {
     if (target) {
       suppressRef.current = true;
-      map.flyTo(target, 12, { duration: 1 });
+      map.flyTo(target, zoom ?? 12, { duration: 1 });
       map.once("moveend", () => {
         suppressRef.current = false;
       });
     }
-  }, [target, map, suppressRef]);
+  }, [target, zoom, map, suppressRef]);
   return null;
+}
+
+/** Re-centers the map when disaster changes. */
+function MapRecenter({ center, zoom }: { center: [number, number]; zoom: number }) {
+  const map = useMap();
+  const prevCenter = useRef(center);
+  useEffect(() => {
+    if (center[0] !== prevCenter.current[0] || center[1] !== prevCenter.current[1]) {
+      prevCenter.current = center;
+      map.flyTo(center, zoom, { duration: 1.5 });
+    }
+  }, [center, zoom, map]);
+  return null;
+}
+
+interface DisasterOption {
+  key: string;
+  label: string;
+  max_posts: number;
 }
 
 const Map = () => {
@@ -86,10 +107,17 @@ const Map = () => {
   const [sliderValue, setSliderValue] = useState(0);
   const [focusedCluster, setFocusedCluster] = useState<string | null>(null);
   const [flyTarget, setFlyTarget] = useState<[number, number] | null>(null);
+  const [flyZoom, setFlyZoom] = useState<number | undefined>(undefined);
   const [analyzedPosts, setAnalyzedPosts] = useState<AnalyzedPost[]>([]);
   const [analysisStartTime, setAnalysisStartTime] = useState<number>(0);
   const [llmSummary, setLlmSummary] = useState("");
   const [summaryLoading, setSummaryLoading] = useState(false);
+  const [disasters, setDisasters] = useState<DisasterOption[]>([]);
+  const [activeDisaster, setActiveDisaster] = useState("");
+  const [mapCenter, setMapCenter] = useState<[number, number]>([18.45, -66.07]);
+  const [mapZoom, setMapZoom] = useState(9);
+  const [disasterLoading, setDisasterLoading] = useState(false);
+  const [sampleSize, setSampleSize] = useState(500);
 
   const allPostsRef = useRef<Post[]>([]);
   const clustersRef = useRef<Record<string, Cluster>>({});
@@ -105,17 +133,70 @@ const Map = () => {
   // Per-post analyzed data (scores + severity) accumulated during inference
   const analyzedPostsRef = useRef<AnalyzedPost[]>([]);
 
-  useEffect(() => {
-    fetch("/api/posts")
+  const fetchPosts = useCallback(() => {
+    return fetch("/api/posts")
       .then((res) => res.json())
       .then((data) => {
         allPostsRef.current = data.posts;
         clustersRef.current = data.clusters;
         setClusters(data.clusters);
         setTotal(data.posts.length);
+        if (data.map_center) setMapCenter(data.map_center);
+        if (data.map_zoom) setMapZoom(data.map_zoom);
       })
       .catch((err) => console.error("Failed to fetch posts:", err));
   }, []);
+
+  const resetState = useCallback(() => {
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    setVisiblePosts([]);
+    setClusters({});
+    setProgress(0);
+    setTotal(0);
+    setPhase("idle");
+    setSliderValue(0);
+    setFocusedCluster(null);
+    setFlyTarget(null);
+    setAnalyzedPosts([]);
+    setLlmSummary("");
+    setSummaryLoading(false);
+    allPostsRef.current = [];
+    clustersRef.current = {};
+    dripIndexRef.current = 0;
+    dripTargetRef.current = 0;
+    inferDoneRef.current = false;
+    clusterSeverityRef.current = {};
+    postSeverityRef.current = [];
+    analyzedPostsRef.current = [];
+  }, []);
+
+  // Fetch disaster list + initial posts on mount
+  useEffect(() => {
+    fetch("/api/disasters")
+      .then((res) => res.json())
+      .then((data) => {
+        setDisasters(data.disasters ?? []);
+        setActiveDisaster(data.active ?? "");
+        if (data.sample) setSampleSize(data.sample);
+      })
+      .then(() => fetchPosts())
+      .catch((err) => console.error("Failed to fetch disasters:", err));
+  }, [fetchPosts]);
+
+  const loadDisaster = (disaster: string, sample: number) => {
+    if (disasterLoading) return;
+    resetState();
+    setDisasterLoading(true);
+    fetch(`/api/load?disaster=${encodeURIComponent(disaster)}&sample=${sample}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.active) setActiveDisaster(data.active);
+        if (data.sample) setSampleSize(data.sample);
+        return fetchPosts();
+      })
+      .catch((err) => console.error("Failed to load disaster:", err))
+      .finally(() => setDisasterLoading(false));
+  };
 
   // Fetch LLM summary when analysis completes
   useEffect(() => {
@@ -315,11 +396,13 @@ const Map = () => {
       setFocusedCluster(cid);
       if (cid && clusters[cid]) {
         setFlyTarget(clusters[cid].centroid);
+        setFlyZoom(12);
       } else {
-        setFlyTarget(null);
+        setFlyTarget(mapCenter);
+        setFlyZoom(mapZoom);
       }
     },
-    [clusters],
+    [clusters, mapCenter],
   );
 
   const statusText = {
@@ -353,8 +436,8 @@ const Map = () => {
   return (
     <div style={{ height: "100vh", width: "100%", position: "relative" }}>
       <MapContainer
-        center={[18.45, -66.07]}
-        zoom={9}
+        center={mapCenter}
+        zoom={mapZoom}
         style={{ height: "100%", width: "100%" }}
       >
         <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}" />
@@ -375,7 +458,8 @@ const Map = () => {
           onFocusCluster={setFocusedCluster}
           suppressRef={flyingSuppressRef}
         />
-        <MapFlyTo target={flyTarget} suppressRef={flyingSuppressRef} />
+        <MapFlyTo target={flyTarget} zoom={flyZoom} suppressRef={flyingSuppressRef} />
+        <MapRecenter center={mapCenter} zoom={mapZoom} />
       </MapContainer>
 
       {/* Analysis widgets overlay — sits above the map */}
@@ -429,6 +513,72 @@ const Map = () => {
           color: "white",
         }}
       >
+        {/* Disaster + sample selectors */}
+        {phase === "idle" || phase === "done" ? (
+          <div style={{ display: "flex", gap: 8, width: "100%" }}>
+            <select
+              value={activeDisaster}
+              onChange={(e) => loadDisaster(e.target.value, sampleSize)}
+              disabled={disasterLoading}
+              style={{
+                flex: 1,
+                background: "#1e2130",
+                border: "1px solid #2a2d3a",
+                borderRadius: 6,
+                color: "white",
+                padding: "6px 8px",
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: disasterLoading ? "wait" : "pointer",
+                outline: "none",
+              }}
+            >
+              {disasters.map((d) => (
+                <option key={d.key} value={d.key} style={{ background: "#161922" }}>
+                  {d.label}
+                </option>
+              ))}
+            </select>
+            <select
+              value={sampleSize}
+              onChange={(e) => loadDisaster(activeDisaster, parseInt(e.target.value))}
+              disabled={disasterLoading}
+              style={{
+                background: "#1e2130",
+                border: "1px solid #2a2d3a",
+                borderRadius: 6,
+                color: "white",
+                padding: "6px 8px",
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: disasterLoading ? "wait" : "pointer",
+                outline: "none",
+                minWidth: 80,
+              }}
+            >
+              {[100, 250, 500, 1000, 2000].filter((n) => {
+                const d = disasters.find((d) => d.key === activeDisaster);
+                return !d || n <= d.max_posts;
+              }).map((n) => (
+                <option key={n} value={n} style={{ background: "#161922" }}>
+                  {n} posts
+                </option>
+              ))}
+              {(() => {
+                const d = disasters.find((d) => d.key === activeDisaster);
+                if (d && ![100, 250, 500, 1000, 2000].includes(d.max_posts)) {
+                  return (
+                    <option value={d.max_posts} style={{ background: "#161922" }}>
+                      All ({d.max_posts})
+                    </option>
+                  );
+                }
+                return null;
+              })()}
+            </select>
+          </div>
+        ) : null}
+
         {/* Phase indicators */}
         <div style={{ display: "flex", gap: 6, width: "100%" }}>
           {[
@@ -526,19 +676,19 @@ const Map = () => {
 
         <button
           onClick={handleRun}
-          disabled={phase === "predicting" || phase === "animating"}
+          disabled={phase === "predicting" || phase === "animating" || disasterLoading || total === 0}
           style={{
             width: "100%",
             padding: "7px 0",
             borderRadius: 6,
             border: "none",
             background:
-              phase === "predicting" || phase === "animating"
+              phase === "predicting" || phase === "animating" || disasterLoading || total === 0
                 ? "#3a3d4a"
                 : "#6c63ff",
             color: "white",
             cursor:
-              phase === "predicting" || phase === "animating"
+              phase === "predicting" || phase === "animating" || disasterLoading || total === 0
                 ? "default"
                 : "pointer",
             fontWeight: 600,
