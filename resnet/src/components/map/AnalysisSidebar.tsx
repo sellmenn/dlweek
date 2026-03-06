@@ -71,14 +71,15 @@ function timeSpan(posts: AnalyzedPost[]): string {
 }
 
 function avgSeverityScore(posts: AnalyzedPost[]): number {
-  if (posts.length === 0) return 0;
+  const informative = posts.filter((p) => p.informative);
+  if (informative.length === 0) return 0;
   const W: Record<string, number> = {
     little_or_none: 0.1,
     mild: 0.3,
     severe: 1,
   };
   return (
-    posts.reduce((acc, p) => acc + (W[p.severity_label] ?? 0), 0) / posts.length
+    informative.reduce((acc, p) => acc + (W[p.severity_label] ?? 0), 0) / informative.length
   );
 }
 
@@ -879,15 +880,30 @@ export default function AnalysisWidgets({
                       }}
                     />
                   )}
-                  <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ flex: 1, minWidth: 0, opacity: post.informative ? 1 : 0.4 }}>
                     <div
                       style={{
                         fontSize: 10,
                         color: "rgba(255,255,255,0.25)",
                         marginBottom: 2,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
                       }}
                     >
                       {post.date}
+                      <span style={{
+                        fontSize: 8,
+                        padding: "1px 5px",
+                        borderRadius: 3,
+                        fontWeight: 600,
+                        background: post.informative ? "rgba(34,197,94,0.15)" : "rgba(255,255,255,0.06)",
+                        color: post.informative ? "#22c55e" : "rgba(255,255,255,0.3)",
+                        textTransform: "uppercase",
+                        letterSpacing: 0.3,
+                      }}>
+                        {post.informative ? "informative" : "not informative"}
+                      </span>
                     </div>
                     <div
                       style={{

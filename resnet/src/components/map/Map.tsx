@@ -320,6 +320,7 @@ const Map = () => {
             ...allPostsRef.current[postIdx],
             scores: data.scores ?? {},
             severity_label: data.severity_label ?? "little_or_none",
+            informative: !!data.informative,
           });
           // Update state every 10 posts for live widget updates
           if (data.current % 10 === 0 || data.current >= data.total) {

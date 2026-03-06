@@ -69,6 +69,13 @@ function PostMarker({ post, cluster, onClick, analyzed, isSelected }: { post: Po
     }
   }, [isSelected])
 
+  useEffect(() => {
+    if (markerRef.current) {
+      const el = markerRef.current.getElement()
+      if (el) el.style.opacity = analyzed && !analyzed.informative ? '0.35' : '1'
+    }
+  }, [analyzed?.informative])
+
   return (
     <Marker
       ref={markerRef}
