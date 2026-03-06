@@ -49,8 +49,11 @@ python prepare_data.py --crisismmd CrisisMMD_v2.0 --output data/posts.csv
 # 2. Generate pseudo-labels with GPT-4o (requires OPENAI_API_KEY in .env)
 python generate_labels.py --data-dir CrisisMMD_v2.0 --csv data/posts.csv --output data/labels.json
 
-# 3. Train the model (leave-one-disaster-out CV + final retrain on all data)
+# 3. Train the resource classifier (leave-one-disaster-out CV + final retrain on all data)
 python train.py --labels data/labels.json --data-dir CrisisMMD_v2.0 --epochs 200 --output checkpoints/model.pt
+
+# 4. Train informativeness classifiers (image + text, LODO CV)
+python train_informativeness.py --crisismmd CrisisMMD_v2.0 --epochs 100
 ```
 
 ## Architecture
@@ -71,13 +74,18 @@ Crisis Social Media Posts (image + caption + coordinates)
                                       │   → [infrastructure, food, shelter,
                                       │      sanitation_water, medication]
                                       │
-                                      └── ViT Damage Severity Classifier (3-class)
-                                          → little_or_none | mild | severe
+                                      ├── ViT Damage Severity Classifier (3-class)
+                                      │   → little_or_none | mild | severe
+                                      │
+                                      └── Informativeness Classifiers (512→128→1)
+                                          ├── Image informative?  (CLIP image emb)
+                                          └── Text informative?   (CLIP text emb)
         │                                  │
         └──────────────────────────────────┘
                         │
                         ▼
           Cluster-level aggregation + weighted severity
+          (only informative posts contribute to scores)
                         │
                         ▼
           Flask API (REST + SSE streaming)
@@ -99,6 +107,44 @@ Crisis Social Media Posts (image + caption + coordinates)
 5. **Interactive Timeline Slider** — After analysis, scrub through posts chronologically to see how resource demands evolve over time, with on-the-fly severity recomputation.
 
 6. **LLM Crisis Summary** — After inference, the `/api/summarize` endpoint sends cluster-level resource scores to an LLM to generate a natural-language situation analysis with actionable insights.
+
+## Training Methodology
+
+### 1. Resource Classifier (`train.py`)
+
+Predicts 5 continuous resource need scores (infrastructure, food, shelter, sanitation/water, medication) per post.
+
+- **Labels:** GPT-4o pseudo-labels — each post is scored 0.0–1.0 per category by prompting GPT-4o with the image and caption (`generate_labels.py`).
+- **Features:** CLIP ViT-B/32 image embedding (512-dim) concatenated with text embedding (512-dim) → 1024-dim input vector, precomputed and cached to `data/cached_features.pt`.
+- **Architecture:** MLP with layers 1024 → 512 → 256 → 5, ReLU activations, 0.3 dropout, sigmoid output.
+- **Loss:** Binary Cross-Entropy (BCE) between pseudo-labels and sigmoid outputs.
+- **Validation:** Leave-one-disaster-out (LODO) cross-validation — trains on all disasters except one, validates on the held-out disaster, rotating through all disasters.
+- **Sampling:** Disaster-balanced `WeightedRandomSampler` — each sample's weight is the inverse of its disaster's count, ensuring all disasters contribute equally regardless of size.
+- **Optimizer:** Adam (lr=1e-3, weight_decay=1e-3) with `ReduceLROnPlateau` (factor=0.5, patience=7).
+- **Early stopping:** Patience of 20 epochs on validation loss.
+- **Final model:** After CV, retrained on all data and saved to `checkpoints/model.pt`.
+
+### 2. ViT Damage Severity Classifier
+
+Classifies each post's image into three damage severity levels: `little_or_none`, `mild`, `severe`.
+
+- **Architecture:** Fine-tuned Vision Transformer (ViT) saved in HuggingFace format at `checkpoints/vit-crisis-damage-final/`.
+- **Training:** Fine-tuned on CrisisMMD damage severity annotations using standard image classification with cross-entropy loss.
+- **Inference:** Loaded via HuggingFace `transformers` pipeline at runtime. Severity scores are weighted (0.1, 0.3, 1.0) and averaged per cluster to produce a combined cluster severity.
+
+### 3. Informativeness Classifiers (`train_informativeness.py`)
+
+Two separate binary classifiers determine whether a post's image or text is informative for crisis response. Only posts classified as informative on both modalities contribute to cluster-level resource aggregation.
+
+- **Labels:** CrisisMMD TSV columns `image_info` and `text_info` ("informative" / "not_informative").
+- **Features:** CLIP ViT-B/32 embeddings — image classifier uses the 512-dim image embedding, text classifier uses the 512-dim text embedding. Precomputed and cached to `data/cached_info_features.pt`.
+- **Architecture:** MLP with layers 512 → 128 → 1, ReLU activation, 0.3 dropout, sigmoid output.
+- **Loss:** Binary Cross-Entropy (BCE).
+- **Validation:** Leave-one-disaster-out (LODO) cross-validation, same as the resource classifier.
+- **Sampling:** Disaster-balanced `WeightedRandomSampler`, same approach as the resource classifier.
+- **Optimizer:** Adam (lr=1e-3, weight_decay=1e-3) with `ReduceLROnPlateau` (factor=0.5, patience=7).
+- **Early stopping:** Patience of 20 epochs on validation loss.
+- **Final models:** Retrained on all data, saved to `checkpoints/info_image.pt` and `checkpoints/info_text.pt`.
 
 ## Formulas
 
@@ -139,7 +185,8 @@ Averaged first per category, then across all 5 categories.
 ## Project Structure
 
 ```
-├── train.py              # Training pipeline (LODO CV, BCE loss, balanced sampling, early stopping)
+├── train.py              # Resource classifier training (LODO CV, BCE loss, balanced sampling)
+├── train_informativeness.py  # Informativeness classifiers training (image + text, LODO CV)
 ├── model.py              # ResourceClassifier MLP (1024→512→256→5 with sigmoid)
 ├── encoder.py            # CLIP ViT-B/32 wrapper for image/text encoding
 ├── clustering.py         # DBSCAN spatial clustering
@@ -162,6 +209,8 @@ Averaged first per category, then across all 5 categories.
 ├── CrisisMMD_v2.0/       # Dataset (not included)
 ├── checkpoints/
 │   ├── model.pt                    # ResourceClassifier weights
+│   ├── info_image.pt               # Image informativeness classifier weights
+│   ├── info_text.pt                # Text informativeness classifier weights
 │   └── vit-crisis-damage-final/    # ViT severity classifier (HuggingFace format)
 └── documentation/        # LaTeX documentation
 ```

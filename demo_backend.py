@@ -69,6 +69,7 @@ from transformers import ViTForImageClassification, ViTImageProcessor
 
 from encoder import CLIPEncoder
 from model import RESOURCE_CATEGORIES, load_model
+from train_informativeness import InformativenessClassifier
 
 from flask_cors import CORS
 
@@ -100,6 +101,7 @@ DISASTER_CONFIGS = {
         "image_dir": "hurricane_maria",
         "map_center": [18.45, -66.07],
         "map_zoom": 9,
+        "eps": 0.06,
         "cluster_centers": [
             (18.4500, -66.0700, "San Juan",      2200000, 0.22),
             (18.0111, -66.6141, "Ponce",          160000,  0.14),
@@ -129,6 +131,7 @@ DISASTER_CONFIGS = {
         "image_dir": "hurricane_irma",
         "map_center": [25.76, -80.19],
         "map_zoom": 7,
+        "eps": 0.15,
         "cluster_centers": [
             (25.7617, -80.1918, "Miami",           470000, 0.30),
             (26.1224, -80.1373, "Fort Lauderdale",  183000, 0.20),
@@ -154,6 +157,7 @@ DISASTER_CONFIGS = {
         "image_dir": "mexico_earthquake",
         "map_center": [19.43, -99.13],
         "map_zoom": 8,
+        "eps": 0.08,
         "cluster_centers": [
             (19.4326, -99.1332, "Mexico City",  9200000, 0.25),
             (18.8500, -99.2000, "Cuernavaca",    366000, 0.14),
@@ -261,6 +265,8 @@ ENCODER = None
 MODEL = None
 SEVERITY_MODEL = None
 SEVERITY_PROCESSOR = None
+INFO_IMAGE_MODEL = None
+INFO_TEXT_MODEL = None
 DEVICE = "cpu"
 CLUSTER_META = {}
 SAMPLE_N = 500
@@ -271,9 +277,10 @@ FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "demo_ou
 
 # ── DBSCAN ────────────────────────────────────────────────────────────────────
 
-def run_dbscan(config, eps=0.20, min_samples=3):
+def run_dbscan(config, min_samples=3):
     """Run DBSCAN on all posts and store labels + cluster metadata."""
     global CLUSTER_META
+    eps = config.get("eps", 0.15)
     coords = np.array([[p["latitude"], p["longitude"]] for p in POSTS])
     db = DBSCAN(eps=eps, min_samples=min_samples, metric="euclidean")
     labels = db.fit_predict(coords)
@@ -441,6 +448,12 @@ def api_predict():
 
             post["resource_scores"] = {cat: round(float(scores[j]), 4) for j, cat in enumerate(RESOURCE_CATEGORIES)}
 
+            # Informativeness classification
+            with torch.no_grad():
+                img_info = float(INFO_IMAGE_MODEL(img_emb.unsqueeze(0).to(DEVICE)).item())
+                txt_info = float(INFO_TEXT_MODEL(cap_emb.unsqueeze(0).to(DEVICE)).item())
+            post["informative"] = (img_info >= 0.5 and txt_info >= 0.5)
+
             # ViT severity classification
             pil_img = Image.open(post["image_path"]).convert("RGB")
             sev_inputs = SEVERITY_PROCESSOR(images=pil_img, return_tensors="pt").to(DEVICE)
@@ -453,14 +466,17 @@ def api_predict():
             post["severity_score"] = round(severity_score, 4)
             post["severity_label"] = severity_label
 
-            yield f"data: {json.dumps({'type': 'progress', 'current': i + 1, 'total': total, 'cluster': post.get('cluster_label', -1), 'severity_label': severity_label, 'scores': post['resource_scores']})}\n\n"
+            yield f"data: {json.dumps({'type': 'progress', 'current': i + 1, 'total': total, 'cluster': post.get('cluster_label', -1), 'severity_label': severity_label, 'scores': post['resource_scores'], 'informative': post['informative']})}\n\n"
 
         # Per-cluster averaged scores + severity
         SEVERITY_WEIGHTS = {"little_or_none": 0.1, "mild": 0.3, "severe": 1.0}
         cluster_ids = sorted(set(p.get("cluster_label", -1) for p in POSTS if p.get("cluster_label", -1) != -1))
         cluster_scores = {}
         for cid in cluster_ids:
-            members = [p for p in POSTS if p.get("cluster_label") == cid]
+            all_members = [p for p in POSTS if p.get("cluster_label") == cid]
+            members = [p for p in all_members if p.get("informative", False)]
+            if not members:
+                members = all_members  # fallback if no informative posts in cluster
             avg = {}
             for cat in RESOURCE_CATEGORIES:
                 avg[cat] = round(float(np.mean([p["resource_scores"][cat] for p in members])), 4)
@@ -540,12 +556,14 @@ def main():
     parser.add_argument("--sample", type=int, default=500)
     parser.add_argument("--model", default="checkpoints/model.pt")
     parser.add_argument("--severity-model", default="checkpoints/vit-crisis-damage-final")
+    parser.add_argument("--info-image-model", default="checkpoints/info_image.pt")
+    parser.add_argument("--info-text-model", default="checkpoints/info_text.pt")
     parser.add_argument("--annotations-dir", default="CrisisMMD_v2.0/annotations")
     parser.add_argument("--disaster", default="hurricane_maria", choices=list(DISASTER_CONFIGS.keys()))
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
 
-    global ENCODER, MODEL, SEVERITY_MODEL, SEVERITY_PROCESSOR, DEVICE, SAMPLE_N, ANNOTATIONS_DIR
+    global ENCODER, MODEL, SEVERITY_MODEL, SEVERITY_PROCESSOR, INFO_IMAGE_MODEL, INFO_TEXT_MODEL, DEVICE, SAMPLE_N, ANNOTATIONS_DIR
 
     DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
     print(f"Device: {DEVICE}")
@@ -566,6 +584,14 @@ def main():
     SEVERITY_PROCESSOR = ViTImageProcessor.from_pretrained(args.severity_model)
     SEVERITY_MODEL = ViTForImageClassification.from_pretrained(args.severity_model).to(DEVICE)
     SEVERITY_MODEL.eval()
+
+    print("Loading informativeness models...")
+    INFO_IMAGE_MODEL = InformativenessClassifier().to(DEVICE)
+    INFO_IMAGE_MODEL.load_state_dict(torch.load(args.info_image_model, map_location=DEVICE, weights_only=True))
+    INFO_IMAGE_MODEL.eval()
+    INFO_TEXT_MODEL = InformativenessClassifier().to(DEVICE)
+    INFO_TEXT_MODEL.load_state_dict(torch.load(args.info_text_model, map_location=DEVICE, weights_only=True))
+    INFO_TEXT_MODEL.eval()
 
     print(f"\nServer starting on http://localhost:{args.port}")
     app.run(host="0.0.0.0", port=args.port, debug=False, threaded=True)

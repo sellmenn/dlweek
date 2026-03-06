@@ -1,5 +1,5 @@
 import "leaflet/dist/leaflet.css";
-import { MapContainer, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import { MapContainer, TileLayer, Polygon, useMap, useMapEvents } from "react-leaflet";
 import PostMarkers from "./cluster.tsx";
 import AnalysisSidebar from "./AnalysisSidebar.tsx";
 import { useEffect, useState, useRef, useCallback } from "react";
@@ -11,6 +11,29 @@ const INTERVAL_MS = 20;
 const ZOOM_THRESHOLD = 11;
 
 type Phase = "idle" | "predicting" | "animating" | "done";
+
+/** Compute convex hull of 2D points using Graham scan. Returns ordered hull points. */
+function convexHull(points: [number, number][]): [number, number][] {
+  if (points.length < 3) return points;
+  const pts = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o: [number, number], a: [number, number], b: [number, number]) =>
+    (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower: [number, number][] = [];
+  for (const p of pts) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0)
+      lower.pop();
+    lower.push(p);
+  }
+  const upper: [number, number][] = [];
+  for (const p of pts.reverse()) {
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0)
+      upper.pop();
+    upper.push(p);
+  }
+  lower.pop();
+  upper.pop();
+  return lower.concat(upper);
+}
 
 /** Watches map zoom/pan and auto-focuses the nearest cluster when zoomed in. */
 function MapEventHandler({
@@ -452,6 +475,29 @@ const Map = () => {
             handleFocusCluster(cid);
           }}
         />
+        {phase === "done" &&
+          Object.keys(clusters).map((cid) => {
+            const clusterPosts = visiblePosts.filter(
+              (p) => String(p.cluster) === cid,
+            );
+            if (clusterPosts.length < 3) return null;
+            const hull = convexHull(
+              clusterPosts.map((p) => [p.lat, p.lon] as [number, number]),
+            );
+            if (hull.length < 3) return null;
+            return (
+              <Polygon
+                key={`boundary-${cid}`}
+                positions={hull}
+                pathOptions={{
+                  color: "#ef4444",
+                  weight: 2,
+                  dashArray: "6 4",
+                  fill: false,
+                }}
+              />
+            );
+          })}
         <MapEventHandler
           clusters={clusters}
           phase={phase}
