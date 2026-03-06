@@ -100,6 +100,42 @@ Crisis Social Media Posts (image + caption + coordinates)
 
 6. **LLM Crisis Summary** — After inference, the `/api/summarize` endpoint sends cluster-level resource scores to an LLM to generate a natural-language situation analysis with actionable insights.
 
+## Formulas
+
+**Training Loss — Binary Cross-Entropy (BCE):**
+
+$$\mathcal{L} = -\frac{1}{N} \sum_{i=1}^{N} \sum_{c=1}^{5} \left[ y_{ic} \log(\hat{y}_{ic}) + (1 - y_{ic}) \log(1 - \hat{y}_{ic}) \right]$$
+
+where $y_{ic} \in [0, 1]$ is the GPT-4o pseudo-label and $\hat{y}_{ic}$ is the model's sigmoid output for post $i$, category $c$.
+
+**Balanced Sampling Weight:**
+
+$$w_i = \frac{1}{|\{j : d_j = d_i\}|}$$
+
+Each training sample's weight is the inverse of its disaster's count, so all disasters contribute equally regardless of dataset size.
+
+**Cluster Weighted Severity:**
+
+$$S_k = \frac{1}{|C_k|} \sum_{i \in C_k} w(s_i)$$
+
+where $w(\text{little\_or\_none}) = 0.1$, $w(\text{mild}) = 0.3$, $w(\text{severe}) = 1.0$, and $C_k$ is the set of posts in cluster $k$.
+
+The combined severity label is then:
+
+$$\text{severity}_k = \begin{cases} \text{little\_or\_none} & S_k < 0.20 \\ \text{mild} & 0.20 \leq S_k < 0.30 \\ \text{severe} & S_k \geq 0.30 \end{cases}$$
+
+**Per-Cluster Resource Score:**
+
+$$R_{kc} = \frac{1}{|C_k|} \sum_{i \in C_k} \hat{y}_{ic}$$
+
+The mean of individual post scores per resource category $c$ across all posts in cluster $k$.
+
+**Validation Metric — Mean Absolute Error (MAE):**
+
+$$\text{MAE} = \frac{1}{5} \sum_{c=1}^{5} \frac{1}{N} \sum_{i=1}^{N} |y_{ic} - \hat{y}_{ic}|$$
+
+Averaged first per category, then across all 5 categories.
+
 ## Project Structure
 
 ```
