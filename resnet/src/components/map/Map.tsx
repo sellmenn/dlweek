@@ -179,6 +179,7 @@ const Map = () => {
   const [analysisStartTime, setAnalysisStartTime] = useState<number>(0);
   const [llmSummary, setLlmSummary] = useState("");
   const [summaryLoading, setSummaryLoading] = useState(false);
+  const summaryCacheRef = useRef<Record<string, string>>({});
   const [disasters, setDisasters] = useState<DisasterOption[]>([]);
   const [activeDisaster, setActiveDisaster] = useState("");
   const [mapCenter, setMapCenter] = useState<[number, number]>([18.45, -66.07]);
@@ -228,6 +229,7 @@ const Map = () => {
     setAnalyzedPosts([]);
     setLlmSummary("");
     setSummaryLoading(false);
+    summaryCacheRef.current = {};
     allPostsRef.current = [];
     clustersRef.current = {};
     dripIndexRef.current = 0;
@@ -266,42 +268,72 @@ const Map = () => {
       .finally(() => setDisasterLoading(false));
   };
 
-  // Fetch LLM summary when analysis completes
+  // Fetch LLM summary when analysis completes or focused cluster changes (cached per cluster)
   useEffect(() => {
     if (phase !== "done" || analyzedPosts.length === 0) return;
+
+    const cacheKey = focusedCluster ?? "global";
+    if (summaryCacheRef.current[cacheKey]) {
+      setLlmSummary(summaryCacheRef.current[cacheKey]);
+      return;
+    }
+
     setSummaryLoading(true);
     setLlmSummary("");
 
-    const sevCounts: Record<string, number> = {
-      severe: 0,
-      mild: 0,
-      little_or_none: 0,
-    };
-    for (const p of analyzedPosts) {
+    const posts = focusedCluster
+      ? analyzedPosts.filter((p) => String(p.cluster) === focusedCluster)
+      : analyzedPosts;
+
+    const sevCounts: Record<string, number> = { severe: 0, mild: 0, little_or_none: 0 };
+    for (const p of posts) {
       sevCounts[p.severity_label] = (sevCounts[p.severity_label] ?? 0) + 1;
     }
 
-    const clusterData = Object.entries(clusters).map(([cid, c]) => ({
-      name: c.name,
-      postCount: c.count,
-      severity: c.combined_severity ?? "unknown",
-    }));
+    let body: object;
+    if (focusedCluster) {
+      const needScores: Record<string, number> = {};
+      for (const p of posts) {
+        for (const [cat, val] of Object.entries(p.scores)) {
+          needScores[cat] = (needScores[cat] ?? 0) + (val as number);
+        }
+      }
+      for (const cat of Object.keys(needScores)) {
+        needScores[cat] = Math.round((needScores[cat] / posts.length) * 100) / 100;
+      }
+      body = {
+        totalPosts: posts.length,
+        severityDistribution: sevCounts,
+        focusedCluster: clusters[focusedCluster]?.name ?? focusedCluster,
+        needScores,
+      };
+    } else {
+      body = {
+        totalPosts: posts.length,
+        clusterCount: Object.keys(clusters).length,
+        severityDistribution: sevCounts,
+        clusters: Object.values(clusters).map((c) => ({
+          name: c.name,
+          postCount: c.count,
+          severity: c.combined_severity ?? "unknown",
+        })),
+      };
+    }
 
     fetch("/api/summarize", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        totalPosts: analyzedPosts.length,
-        clusterCount: Object.keys(clusters).length,
-        severityDistribution: sevCounts,
-        clusters: clusterData,
-      }),
+      body: JSON.stringify(body),
     })
       .then((r) => r.json())
-      .then((d) => setLlmSummary(d.summary ?? "No summary available."))
+      .then((d) => {
+        const summary = d.summary ?? "No summary available.";
+        summaryCacheRef.current[cacheKey] = summary;
+        setLlmSummary(summary);
+      })
       .catch(() => setLlmSummary("Failed to generate summary."))
       .finally(() => setSummaryLoading(false));
-  }, [phase, analyzedPosts, clusters]);
+  }, [phase, analyzedPosts, clusters, focusedCluster]);
 
   const startDrip = () => {
     dripIndexRef.current = 0;

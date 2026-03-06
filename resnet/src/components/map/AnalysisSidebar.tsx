@@ -239,10 +239,12 @@ function SummaryWidget({
   visible,
   llmSummary,
   summaryLoading,
+  clusterName,
 }: {
   visible: boolean;
   llmSummary: string;
   summaryLoading: boolean;
+  clusterName?: string;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const show = visible && (summaryLoading || !!llmSummary);
@@ -285,7 +287,7 @@ function SummaryWidget({
               letterSpacing: "0.15em",
             }}
           >
-            AI Situation Report
+            {clusterName ? `${clusterName} — AI Report` : "AI Situation Report"}
           </span>
           <span
             style={{
@@ -1069,6 +1071,7 @@ export default function AnalysisWidgets({
         visible={phase === "done"}
         llmSummary={llmSummary}
         summaryLoading={summaryLoading}
+        clusterName={focusedCluster ? clusters[focusedCluster]?.name : undefined}
       />
     </>
   );

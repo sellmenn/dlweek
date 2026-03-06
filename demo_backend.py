@@ -520,7 +520,27 @@ def api_summarize():
     data = __import__("flask").request.get_json(force=True)
 
     disaster_label = DISASTER_CONFIGS[ACTIVE_DISASTER]["label"]
-    prompt = f"""You are a crisis response analyst. Based on the following post-disaster analysis data from {disaster_label}, provide a concise situation report with actionable recommendations.
+    focused = data.get("focusedCluster")
+    need_scores = data.get("needScores")
+
+    if focused:
+        prompt = f"""You are a crisis response analyst. Based on social media post analysis for the {focused} area during {disaster_label}, provide a focused situation report for this specific cluster.
+
+Data for {focused}:
+- Posts analyzed: {data.get('totalPosts', 0)}
+- Severity distribution: {json.dumps(data.get('severityDistribution', {}))}
+- Average need scores (0–1): {json.dumps(need_scores or {})}
+
+Write 2-3 sentences summarising conditions in {focused}, then 3-4 specific actionable bullet points for this area. Focus on the highest-scoring needs.
+
+Example output:
+**{focused} Situation**
+<2-3 sentence summary specific to this area>
+
+**Priority Actions**
+- <specific action based on need scores>"""
+    else:
+        prompt = f"""You are a crisis response analyst. Based on the following post-disaster analysis data from {disaster_label}, provide a concise situation report with actionable recommendations.
 
 Data:
 - Total posts analyzed: {data.get('totalPosts', 0)}
