@@ -188,6 +188,60 @@ $$\text{MAE} = \frac{1}{5} \sum_{c=1}^{5} \frac{1}{N} \sum_{i=1}^{N} |y_{ic} - \
 
 Averaged first per category, then across all 5 categories.
 
+## Frontend UI
+
+The frontend is a single-page React application rendered as a full-screen interactive Leaflet map with glassmorphism overlay widgets.
+
+### Map Layer
+
+- **Dark basemap** — ArcGIS World Dark Gray tiles for a clean, modern look.
+- **Glowing dot markers** — Each post appears as a small glowing circle. Marker color reflects the cluster's combined severity (green = low, amber = mild, red = severe). Non-informative posts fade to 35% opacity after inference.
+- **Convex hull boundaries** — After analysis, dashed red polygons outline the geographic extent of each cluster.
+- **Click-to-focus** — Clicking a marker opens a popup with the post image, caption, date, per-category resource scores, and severity label. A "View Cluster" button zooms into that cluster's detail view.
+
+### Bottom Control Bar
+
+- **Disaster selector** — Dropdown to switch between disasters (Hurricane Maria, Irma, Mexico Earthquake, etc.).
+- **Sample size selector** — Choose how many posts to analyze (100, 250, 500, 1000, 2000).
+- **Phase stepper** — Three-step progress indicator: Collect + Cluster → CLIP + Model → Results. Steps light up and get checkmarks as they complete.
+- **Progress bar** — Purple during inference, green during marker animation.
+- **Run / Re-run button** — Starts or restarts the analysis pipeline.
+- **Timeline slider** — Appears after analysis. Scrub through posts chronologically to see how resource demands and severity evolve over time, with on-the-fly severity recomputation using only informative posts.
+
+### Left Sidebar — Overview Mode
+
+Visible when zoomed out (no cluster focused):
+
+- **Time Elapsed** — Wall-clock time since analysis started.
+- **Est. Affected** — Population-weighted estimate of affected people across all clusters.
+- **Clusters** — Total number of geographic clusters.
+- **Cluster List** — Scrollable list of all clusters sorted by severity. Each row shows the cluster name, post count, top resource need (color-coded), severity badge, and a click target to zoom in.
+
+### Left Sidebar — Focused Cluster Mode
+
+Activates when zoomed into a cluster or clicking a cluster row:
+
+- **Back button** — Returns to the overview.
+- **Cluster header** — Cluster name with severity dot and badge.
+- **Stats row** — Time Elapsed, Est. Affected (population-weighted for this cluster), and Avg Severity percentage (computed from informative posts only, color-coded).
+- **Aid Needed** — Ranked bar chart of the 5 resource categories (Infrastructure, Food, Shelter, Water & Sanitation, Medication) with percentage scores and colored progress bars.
+- **Post List** — Scrollable list of all posts in the cluster, sorted by severity. Each post shows a thumbnail, date, informativeness badge (green "INFORMATIVE" or dimmed "NOT INFORMATIVE"), caption, top resource category, and score. Clicking a post flies the map to that marker and opens its popup.
+
+### Right Sidebar — AI Situation Report
+
+- **Collapsible panel** — Appears after analysis completes.
+- **LLM-generated summary** — Sends cluster-level resource scores and severity data to GPT, which returns a natural-language situation analysis with prioritized recommendations and actionable insights.
+- **Loading spinner** — Shows while the summary is being generated.
+
+### Real-Time Streaming
+
+During inference, the UI updates live via Server-Sent Events (SSE):
+
+- Markers appear on the map in a drip-feed animation as posts are analyzed.
+- Cluster severity colors update in real time as informative posts accumulate.
+- The sidebar statistics and post lists refresh every 10 posts.
+- On completion, authoritative cluster scores from the backend are applied to ensure consistency.
+
 ## Project Structure
 
 ```
