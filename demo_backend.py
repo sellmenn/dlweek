@@ -404,9 +404,11 @@ def api_posts():
     for p in POSTS:
         ts = p["timestamp"]
         date_str = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M") if ts > 0 else "N/A"
-        img_rel = p["image_path"]
-        if f"{image_dir_name}/" in img_rel:
-            img_rel = img_rel.split(f"{image_dir_name}/", 1)[1]
+        img_rel = p["image_path"].replace("\\", "/")
+        for sep in (f"{image_dir_name}/", f"{image_dir_name}\\"):
+            if sep in img_rel:
+                img_rel = img_rel.replace("\\", "/").split(f"{image_dir_name}/", 1)[1]
+                break
         out.append({
             "lat": round(p["latitude"], 6),
             "lon": round(p["longitude"], 6),

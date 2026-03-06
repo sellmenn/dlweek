@@ -1,7 +1,9 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef } from "react";
+import { createPortal } from "react-dom";
 import type { AnalyzedPost } from "../../types/post";
 import type { Cluster } from "../../types/cluster";
 import type { Category, CategoryScores } from "../widgets/inferenceWidgets";
+import { glassStyle } from "../widgets/glassCard";
 
 const CATEGORIES: Category[] = [
   "infrastructure",
@@ -40,11 +42,7 @@ const SEV_LABELS: Record<string, string> = {
 const AFFECTED_ALPHA = 0.01;
 
 const card: React.CSSProperties = {
-  background: "rgba(255, 255, 255, 0.04)",
-  backdropFilter: "blur(20px)",
-  WebkitBackdropFilter: "blur(20px)",
-  boxShadow: "0 8px 32px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.08)",
-  border: "1px solid rgba(255,255,255,0.08)",
+  ...glassStyle,
   borderRadius: 14,
   color: "white",
   padding: "14px 18px",
@@ -79,11 +77,77 @@ function avgSeverityScore(posts: AnalyzedPost[]): number {
     severe: 1,
   };
   return (
-    informative.reduce((acc, p) => acc + (W[p.severity_label] ?? 0), 0) / informative.length
+    informative.reduce((acc, p) => acc + (W[p.severity_label] ?? 0), 0) /
+    informative.length
   );
 }
 
 const STAT_H = 76; // fixed height for stat widgets
+
+function SeverityLegendButton() {
+  const [show, setShow] = useState(false);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  const handleMouseEnter = () => {
+    if (btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect();
+      setPos({ top: rect.bottom + 6, left: rect.left });
+    }
+    setShow(true);
+  };
+
+  const popup = show ? (
+    <div
+      onMouseLeave={() => setShow(false)}
+      style={{
+        ...glassStyle,
+        background: "rgba(255,255,255,0.11)",
+        position: "fixed",
+        top: pos.top,
+        left: pos.left,
+        borderRadius: 8,
+        padding: "10px 12px",
+        zIndex: 99999,
+        minWidth: 130,
+      }}
+    >
+      <div style={{ fontSize: 9, color: "rgba(255,255,255,0.35)", marginBottom: 8, letterSpacing: "0.12em" }}>
+        SEVERITY
+      </div>
+      {(["severe", "mild", "little_or_none"] as const).map((s) => (
+        <div key={s} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+          <div style={{ width: 8, height: 8, borderRadius: "50%", background: SEV_COLORS[s], boxShadow: `0 0 6px ${SEV_COLORS[s]}`, flexShrink: 0 }} />
+          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.6)", textTransform: "none", letterSpacing: 0 }}>
+            {SEV_LABELS[s]}
+          </span>
+        </div>
+      ))}
+    </div>
+  ) : null;
+
+  return (
+    <div style={{ display: "flex" }}>
+      <button
+        ref={btnRef}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={() => setShow(false)}
+        style={{
+          width: 14, height: 14, borderRadius: "50%",
+          border: "1px solid rgba(255,255,255,0.2)",
+          background: "rgba(255,255,255,0.06)",
+          color: "rgba(255,255,255,0.4)",
+          fontSize: 9, fontWeight: 700, cursor: "default",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          padding: 0, lineHeight: 1, textTransform: "none", letterSpacing: 0,
+        }}
+      >
+        ?
+      </button>
+      {createPortal(popup, document.body)}
+    </div>
+  );
+}
 
 /** A single stat widget: big number + label */
 function StatWidget({
@@ -106,15 +170,17 @@ function StatWidget({
           display: "flex",
           flexDirection: "column",
           justifyContent: "center",
+          containerType: "inline-size",
         }}
       >
         <div
           style={{
-            fontSize: 24,
+            fontSize: "clamp(11px, 18cqw, 24px)",
             fontWeight: 700,
             lineHeight: 1,
             letterSpacing: "-0.02em",
             color: color ?? "white",
+            whiteSpace: "nowrap",
           }}
         >
           {value}
@@ -131,6 +197,39 @@ function StatWidget({
           {label}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Renders a summary string where **text** becomes a bold section header. */
+function FormattedSummary({ text }: { text: string }) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return (
+    <div style={{ fontSize: 12, lineHeight: 1.7, color: "rgba(255,255,255,0.7)" }}>
+      {parts.map((part, i) => {
+        const match = part.match(/^\*\*(.+)\*\*$/);
+        if (match) {
+          return (
+            <div
+              key={i}
+              style={{
+                fontSize: 13,
+                fontWeight: 700,
+                color: "rgba(255,255,255,0.95)",
+                marginTop: i === 0 ? 0 : 12,
+                marginBottom: 4,
+                letterSpacing: "0.03em",
+                textTransform: "uppercase",
+                borderBottom: "1px solid rgba(255,255,255,0.1)",
+                paddingBottom: 3,
+              }}
+            >
+              {match[1]}
+            </div>
+          );
+        }
+        return <span key={i} style={{ whiteSpace: "pre-wrap" }}>{part}</span>;
+      })}
     </div>
   );
 }
@@ -231,20 +330,15 @@ function SummaryWidget({
                 <span style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>
                   Generating report...
                 </span>
-                <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
               </div>
             ) : (
               <div
                 style={{
-                  fontSize: 12,
-                  lineHeight: 1.6,
-                  color: "rgba(255,255,255,0.7)",
-                  whiteSpace: "pre-wrap",
                   maxHeight: 400,
                   overflowY: "auto",
                 }}
               >
-                {llmSummary}
+                <FormattedSummary text={llmSummary} />
               </div>
             )}
           </div>
@@ -319,14 +413,15 @@ export default function AnalysisWidgets({
   const totalPosts = activePosts.length;
   const clusterCount = Object.keys(postsByCluster).length;
   const globalElapsed = formatElapsed(analysisStartTime);
-  const globalPeople = totalPosts > 0
-    ? Math.round(
-        Object.entries(postsByCluster).reduce((sum, [cid, posts]) => {
-          const pop = clusters[cid]?.population ?? 0;
-          return sum + pop * (posts.length / totalPosts) * AFFECTED_ALPHA;
-        }, 0),
-      )
-    : 0;
+  const globalPeople =
+    totalPosts > 0
+      ? Math.round(
+          Object.entries(postsByCluster).reduce((sum, [cid, posts]) => {
+            const pop = clusters[cid]?.population ?? 0;
+            return sum + pop * (posts.length / totalPosts) * AFFECTED_ALPHA;
+          }, 0),
+        )
+      : 0;
 
   const globalSevCounts: Record<string, number> = {
     severe: 0,
@@ -359,9 +454,14 @@ export default function AnalysisWidgets({
   const focusedSevScore = avgSeverityScore(focusedPosts);
   const focusedElapsed = formatElapsed(analysisStartTime);
   const focusedSpan = timeSpan(focusedPosts);
-  const focusedPeople = totalPosts > 0 && focusedClusterData?.population
-    ? Math.round(focusedClusterData.population * (focusedPosts.length / totalPosts) * AFFECTED_ALPHA)
-    : 0;
+  const focusedPeople =
+    totalPosts > 0 && focusedClusterData?.population
+      ? Math.round(
+          focusedClusterData.population *
+            (focusedPosts.length / totalPosts) *
+            AFFECTED_ALPHA,
+        )
+      : 0;
 
   const focusedSevCounts: Record<string, number> = {
     severe: 0,
@@ -424,6 +524,13 @@ export default function AnalysisWidgets({
 
   return (
     <>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg) } }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); }
+      `}</style>
       {/* ════════════ OVERVIEW ════════════ */}
 
       {/* Time elapsed */}
@@ -459,7 +566,7 @@ export default function AnalysisWidgets({
           left: LEFT,
           top: O3,
           width: W_FULL,
-          bottom: 110,
+          bottom: 16,
           display: "flex",
           flexDirection: "column",
         }}
@@ -482,9 +589,13 @@ export default function AnalysisWidgets({
               textTransform: "uppercase",
               letterSpacing: "0.15em",
               flexShrink: 0,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
             }}
           >
             Clusters
+            <SeverityLegendButton />
           </div>
           <div style={{ flex: 1, overflowY: "auto", padding: "0 8px 8px" }}>
             {sortedClusterIds.map((cid) => {
@@ -798,7 +909,7 @@ export default function AnalysisWidgets({
           left: LEFT,
           top: F4,
           width: W_FULL,
-          bottom: 110,
+          bottom: 16,
           display: "flex",
           flexDirection: "column",
         }}
@@ -860,7 +971,8 @@ export default function AnalysisWidgets({
                     transition: "background 0.15s",
                   }}
                   onMouseEnter={(e) =>
-                    (e.currentTarget.style.background = "rgba(255,255,255,0.05)")
+                    (e.currentTarget.style.background =
+                      "rgba(255,255,255,0.05)")
                   }
                   onMouseLeave={(e) =>
                     (e.currentTarget.style.background = "transparent")
@@ -880,7 +992,13 @@ export default function AnalysisWidgets({
                       }}
                     />
                   )}
-                  <div style={{ flex: 1, minWidth: 0, opacity: post.informative ? 1 : 0.4 }}>
+                  <div
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      opacity: post.informative ? 1 : 0.4,
+                    }}
+                  >
                     <div
                       style={{
                         fontSize: 10,
@@ -892,16 +1010,22 @@ export default function AnalysisWidgets({
                       }}
                     >
                       {post.date}
-                      <span style={{
-                        fontSize: 8,
-                        padding: "1px 5px",
-                        borderRadius: 3,
-                        fontWeight: 600,
-                        background: post.informative ? "rgba(34,197,94,0.15)" : "rgba(255,255,255,0.06)",
-                        color: post.informative ? "#22c55e" : "rgba(255,255,255,0.3)",
-                        textTransform: "uppercase",
-                        letterSpacing: 0.3,
-                      }}>
+                      <span
+                        style={{
+                          fontSize: 8,
+                          padding: "1px 5px",
+                          borderRadius: 3,
+                          fontWeight: 600,
+                          background: post.informative
+                            ? "rgba(34,197,94,0.15)"
+                            : "rgba(255,255,255,0.06)",
+                          color: post.informative
+                            ? "#22c55e"
+                            : "rgba(255,255,255,0.3)",
+                          textTransform: "uppercase",
+                          letterSpacing: 0.3,
+                        }}
+                      >
                         {post.informative ? "informative" : "not informative"}
                       </span>
                     </div>

@@ -1,10 +1,23 @@
 import "leaflet/dist/leaflet.css";
-import { MapContainer, TileLayer, Polygon, useMap, useMapEvents } from "react-leaflet";
+import {
+  MapContainer,
+  TileLayer,
+  Polygon,
+  useMap,
+  useMapEvents,
+} from "react-leaflet";
 import PostMarkers from "./cluster.tsx";
 import AnalysisSidebar from "./AnalysisSidebar.tsx";
 import { useEffect, useState, useRef, useCallback } from "react";
 import type { Post, AnalyzedPost } from "../../types/post";
 import type { Cluster } from "../../types/cluster";
+import { glassStyle } from "../widgets/glassCard";
+
+const SEV_COLORS: Record<string, string> = {
+  severe: "#ef4444",
+  mild: "#f59e0b",
+  little_or_none: "#22c55e",
+};
 
 const POSTS_PER_TICK = 5;
 const INTERVAL_MS = 20;
@@ -12,7 +25,7 @@ const ZOOM_THRESHOLD = 11;
 
 type Phase = "idle" | "predicting" | "animating" | "done";
 
-/** Compute convex hull of 2D points using Graham scan. Returns ordered hull points. */
+/** Convex hull via Graham scan — returns the true edge points in order. */
 function convexHull(points: [number, number][]): [number, number][] {
   if (points.length < 3) return points;
   const pts = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
@@ -25,7 +38,7 @@ function convexHull(points: [number, number][]): [number, number][] {
     lower.push(p);
   }
   const upper: [number, number][] = [];
-  for (const p of pts.reverse()) {
+  for (const p of [...pts].reverse()) {
     while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0)
       upper.pop();
     upper.push(p);
@@ -33,6 +46,28 @@ function convexHull(points: [number, number][]): [number, number][] {
   lower.pop();
   upper.pop();
   return lower.concat(upper);
+}
+
+/** Smooth an ordered polygon ring using Chaikin's algorithm. */
+function smoothPolygon(pts: [number, number][], iterations = 3): [number, number][] {
+  let result = pts;
+  for (let iter = 0; iter < iterations; iter++) {
+    const next: [number, number][] = [];
+    for (let j = 0; j < result.length; j++) {
+      const p0 = result[j];
+      const p1 = result[(j + 1) % result.length];
+      next.push([0.75 * p0[0] + 0.25 * p1[0], 0.75 * p0[1] + 0.25 * p1[1]]);
+      next.push([0.25 * p0[0] + 0.75 * p1[0], 0.25 * p0[1] + 0.75 * p1[1]]);
+    }
+    result = next;
+  }
+  return result;
+}
+
+function clusterBoundary(points: [number, number][]): [number, number][] {
+  const hull = convexHull(points);
+  if (hull.length < 3) return hull;
+  return smoothPolygon(hull);
 }
 
 /** Watches map zoom/pan and auto-focuses the nearest cluster when zoomed in. */
@@ -103,11 +138,20 @@ function MapFlyTo({
 }
 
 /** Re-centers the map when disaster changes. */
-function MapRecenter({ center, zoom }: { center: [number, number]; zoom: number }) {
+function MapRecenter({
+  center,
+  zoom,
+}: {
+  center: [number, number];
+  zoom: number;
+}) {
   const map = useMap();
   const prevCenter = useRef(center);
   useEffect(() => {
-    if (center[0] !== prevCenter.current[0] || center[1] !== prevCenter.current[1]) {
+    if (
+      center[0] !== prevCenter.current[0] ||
+      center[1] !== prevCenter.current[1]
+    ) {
       prevCenter.current = center;
       map.flyTo(center, zoom, { duration: 1.5 });
     }
@@ -151,9 +195,9 @@ const Map = () => {
   const dripTargetRef = useRef(0);
   const inferDoneRef = useRef(false);
   const clusterSeverityRef = useRef<Record<string, number[]>>({});
-  const postSeverityRef = useRef<Array<{ cluster: string; weight: number; informative: boolean }>>(
-    [],
-  );
+  const postSeverityRef = useRef<
+    Array<{ cluster: string; weight: number; informative: boolean }>
+  >([]);
   // Per-post analyzed data (scores + severity) accumulated during inference
   const analyzedPostsRef = useRef<AnalyzedPost[]>([]);
 
@@ -337,7 +381,11 @@ const Map = () => {
           };
           const w = WEIGHTS[data.severity_label] ?? 0;
           const isInformative = !!data.informative;
-          postSeverityRef.current.push({ cluster: cid, weight: w, informative: isInformative });
+          postSeverityRef.current.push({
+            cluster: cid,
+            weight: w,
+            informative: isInformative,
+          });
 
           // Only informative posts contribute to real-time severity
           if (isInformative) {
@@ -358,7 +406,6 @@ const Map = () => {
             }
           }
         }
-
       }
 
       if (data.type === "done") {
@@ -369,11 +416,18 @@ const Map = () => {
         // Apply authoritative cluster scores from backend (includes fallback for clusters with no informative posts)
         if (data.cluster_scores) {
           const updated = { ...clustersRef.current };
-          for (const [cid, scores] of Object.entries(data.cluster_scores) as [string, Record<string, unknown>][]) {
+          for (const [cid, scores] of Object.entries(data.cluster_scores) as [
+            string,
+            Record<string, unknown>,
+          ][]) {
             if (updated[cid]) {
               updated[cid] = {
                 ...updated[cid],
-                combined_severity: scores.combined_severity as "severe" | "mild" | "little_or_none" | undefined,
+                combined_severity: scores.combined_severity as
+                  | "severe"
+                  | "mild"
+                  | "little_or_none"
+                  | undefined,
               };
             }
           }
@@ -410,9 +464,9 @@ const Map = () => {
       if (accum[cid]) {
         const avg = accum[cid].reduce((a, b) => a + b, 0) / accum[cid].length;
         const sev =
-          avg < 0.20
+          avg < 0.2
             ? SEVERITY_LABELS[0]
-            : avg < 0.30
+            : avg < 0.3
               ? SEVERITY_LABELS[1]
               : SEVERITY_LABELS[2];
         updated[cid] = { ...meta, combined_severity: sev };
@@ -446,15 +500,12 @@ const Map = () => {
     [clusters, mapCenter],
   );
 
-  const handlePostSelect = useCallback(
-    (post: Post) => {
-      const key = `${post.lat},${post.lon},${post.caption}`;
-      setSelectedPostKey(key);
-      setFlyTarget([post.lat, post.lon]);
-      setFlyZoom(14);
-    },
-    [],
-  );
+  const handlePostSelect = useCallback((post: Post) => {
+    const key = `${post.lat},${post.lon},${post.caption}`;
+    setSelectedPostKey(key);
+    setFlyTarget([post.lat, post.lon]);
+    setFlyZoom(14);
+  }, []);
 
   const statusText = {
     idle: "Ready",
@@ -510,19 +561,25 @@ const Map = () => {
               (p) => String(p.cluster) === cid,
             );
             if (clusterPosts.length < 3) return null;
-            const hull = convexHull(
+            const hull = clusterBoundary(
               clusterPosts.map((p) => [p.lat, p.lon] as [number, number]),
             );
             if (hull.length < 3) return null;
+            const sev = clusters[cid]?.combined_severity ?? "little_or_none";
+            const sevColor = SEV_COLORS[sev] ?? "#22c55e";
             return (
               <Polygon
                 key={`boundary-${cid}`}
                 positions={hull}
                 pathOptions={{
-                  color: "#ef4444",
-                  weight: 2,
-                  dashArray: "6 4",
-                  fill: false,
+                  color: sevColor,
+                  weight: 1.5,
+                  fill: true,
+                  fillColor: sevColor,
+                  fillOpacity: 0.1,
+                  opacity: 0.5,
+                  lineCap: "round",
+                  lineJoin: "round",
                 }}
               />
             );
@@ -533,7 +590,11 @@ const Map = () => {
           onFocusCluster={setFocusedCluster}
           suppressRef={flyingSuppressRef}
         />
-        <MapFlyTo target={flyTarget} zoom={flyZoom} suppressRef={flyingSuppressRef} />
+        <MapFlyTo
+          target={flyTarget}
+          zoom={flyZoom}
+          suppressRef={flyingSuppressRef}
+        />
         <MapRecenter center={mapCenter} zoom={mapZoom} />
       </MapContainer>
 
@@ -571,14 +632,12 @@ const Map = () => {
 
       <div
         style={{
+          ...glassStyle,
           position: "absolute",
           bottom: 32,
           left: "50%",
           transform: "translateX(-50%)",
           zIndex: 1000,
-          background: "rgba(22,25,34,0.92)",
-          backdropFilter: "blur(8px)",
-          border: "1px solid #2a2d3a",
           borderRadius: 12,
           padding: "12px 20px",
           display: "flex",
@@ -610,14 +669,20 @@ const Map = () => {
               }}
             >
               {disasters.map((d) => (
-                <option key={d.key} value={d.key} style={{ background: "#161922" }}>
+                <option
+                  key={d.key}
+                  value={d.key}
+                  style={{ background: "#161922" }}
+                >
                   {d.label}
                 </option>
               ))}
             </select>
             <select
               value={sampleSize}
-              onChange={(e) => loadDisaster(activeDisaster, parseInt(e.target.value))}
+              onChange={(e) =>
+                loadDisaster(activeDisaster, parseInt(e.target.value))
+              }
               disabled={disasterLoading}
               style={{
                 background: "#1e2130",
@@ -632,19 +697,24 @@ const Map = () => {
                 minWidth: 80,
               }}
             >
-              {[100, 250, 500, 1000, 2000].filter((n) => {
-                const d = disasters.find((d) => d.key === activeDisaster);
-                return !d || n <= d.max_posts;
-              }).map((n) => (
-                <option key={n} value={n} style={{ background: "#161922" }}>
-                  {n} posts
-                </option>
-              ))}
+              {[100, 250, 500, 1000, 2000]
+                .filter((n) => {
+                  const d = disasters.find((d) => d.key === activeDisaster);
+                  return !d || n <= d.max_posts;
+                })
+                .map((n) => (
+                  <option key={n} value={n} style={{ background: "#161922" }}>
+                    {n} posts
+                  </option>
+                ))}
               {(() => {
                 const d = disasters.find((d) => d.key === activeDisaster);
                 if (d && ![100, 250, 500, 1000, 2000].includes(d.max_posts)) {
                   return (
-                    <option value={d.max_posts} style={{ background: "#161922" }}>
+                    <option
+                      value={d.max_posts}
+                      style={{ background: "#161922" }}
+                    >
                       All ({d.max_posts})
                     </option>
                   );
@@ -752,19 +822,30 @@ const Map = () => {
 
         <button
           onClick={handleRun}
-          disabled={phase === "predicting" || phase === "animating" || disasterLoading || total === 0}
+          disabled={
+            phase === "predicting" ||
+            phase === "animating" ||
+            disasterLoading ||
+            total === 0
+          }
           style={{
             width: "100%",
             padding: "7px 0",
             borderRadius: 6,
             border: "none",
             background:
-              phase === "predicting" || phase === "animating" || disasterLoading || total === 0
+              phase === "predicting" ||
+              phase === "animating" ||
+              disasterLoading ||
+              total === 0
                 ? "#3a3d4a"
                 : "#6c63ff",
             color: "white",
             cursor:
-              phase === "predicting" || phase === "animating" || disasterLoading || total === 0
+              phase === "predicting" ||
+              phase === "animating" ||
+              disasterLoading ||
+              total === 0
                 ? "default"
                 : "pointer",
             fontWeight: 600,

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { AnalyzedPost } from '../../types/post'
 import type { Cluster } from '../../types/cluster'
+import { glassStyle } from '../widgets/glassCard'
 
 const CATEGORIES = ['infrastructure', 'food', 'shelter', 'sanitation_water', 'medication']
 const BAR_COLORS: Record<string, string> = {
@@ -58,11 +59,10 @@ export default function ClusterPopup({ cluster, clusterId, posts, onClose }: Pro
         position: 'absolute', top: '50%', left: '50%',
         transform: 'translate(-50%, -50%)',
         zIndex: 2000, width: 460, maxHeight: '80vh',
-        background: 'rgba(16,18,27,0.97)', backdropFilter: 'blur(16px)',
-        border: '1px solid #2a2d3a', borderRadius: 16,
+        ...glassStyle,
+        borderRadius: 16,
         display: 'flex', flexDirection: 'column',
-        color: '#e0e0e0', fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
-        boxShadow: '0 24px 80px rgba(0,0,0,0.5), 0 0 1px rgba(255,255,255,0.1)',
+        color: '#e0e0e0', fontFamily: '"Outfit", sans-serif',
         overflow: 'hidden',
       }}>
         {/* Header */}

@@ -17,6 +17,12 @@ html, body, #root {
   font-family: "Outfit", serif;
 }
 
+/* Severity legend popup blur */
+.severity-legend-popup {
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+}
+
 /* Dark-themed Leaflet popups */
 .dark-popup.leaflet-popup .leaflet-popup-content-wrapper {
   background: transparent !important;
@@ -24,6 +30,7 @@ html, body, #root {
   border-radius: 10px !important;
   padding: 0 !important;
   border: 1px solid #2a2d3a !important;
+  font-family: "Outfit", sans-serif !important;
 }
 .dark-popup.leaflet-popup .leaflet-popup-content {
   margin: 0 !important;

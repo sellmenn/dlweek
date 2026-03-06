@@ -3,6 +3,7 @@ import { Marker, Popup } from 'react-leaflet'
 import L from 'leaflet'
 import type { Post, AnalyzedPost } from '../../types/post'
 import type { Cluster } from '../../types/cluster'
+import { glassStyle } from '../widgets/glassCard'
 
 const CATEGORIES = ['infrastructure', 'food', 'shelter', 'sanitation_water', 'medication']
 const BAR_COLORS: Record<string, string> = {
@@ -12,10 +13,22 @@ const BAR_COLORS: Record<string, string> = {
   sanitation_water: '#2ecc71',
   medication: '#9b59b6',
 }
+const BAR_TEXT_COLORS: Record<string, string> = {
+  infrastructure: '#ff6b5b',
+  food: '#ffc04d',
+  shelter: '#5dade2',
+  sanitation_water: '#58d68d',
+  medication: '#c39bd3',
+}
 const SEV_COLORS: Record<string, string> = {
   little_or_none: '#22c55e',
   mild: '#f59e0b',
   severe: '#ef4444',
+}
+const SEV_TEXT_COLORS: Record<string, string> = {
+  little_or_none: '#4ade80',
+  mild: '#fbbf24',
+  severe: '#f87171',
 }
 
 interface Props {
@@ -84,8 +97,10 @@ function PostMarker({ post, cluster, onClick, analyzed, isSelected }: { post: Po
     >
       <Popup offset={[0, -10]} className="dark-popup">
         <div style={{
-          background: 'rgba(16,18,27,0.97)', borderRadius: 10, color: '#e0e0e0',
-          fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
+          ...glassStyle,
+          background: 'rgba(255,255,255,0.07)',
+          borderRadius: 10, color: '#e0e0e0',
+          fontFamily: '"Outfit", sans-serif',
           minWidth: 220, maxWidth: 280, overflow: 'hidden',
         }}>
           {post.image && (
@@ -100,8 +115,8 @@ function PostMarker({ post, cluster, onClick, analyzed, isSelected }: { post: Po
           )}
           <div style={{ padding: '8px 12px' }}>
             <div style={{ fontSize: 13, fontWeight: 700 }}>{cluster.name}</div>
-            <p style={{ margin: '4px 0', fontSize: 11, color: '#bbb', lineHeight: 1.4 }}>{post.caption}</p>
-            <span style={{ fontSize: 10, color: '#666' }}>{post.date}</span>
+            <p style={{ margin: '4px 0', fontSize: 11, color: '#e0e0e0', lineHeight: 1.4 }}>{post.caption}</p>
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.55)' }}>{post.date}</span>
 
             {analyzed && (
               <>
@@ -111,8 +126,8 @@ function PostMarker({ post, cluster, onClick, analyzed, isSelected }: { post: Po
                     return (
                       <span key={cat} style={{
                         fontSize: 9, padding: '2px 6px', borderRadius: 4,
-                        background: `${BAR_COLORS[cat]}33`, color: BAR_COLORS[cat],
-                        fontWeight: 500, fontVariantNumeric: 'tabular-nums',
+                        background: `${BAR_COLORS[cat]}55`, color: BAR_TEXT_COLORS[cat],
+                        fontWeight: 600, fontVariantNumeric: 'tabular-nums',
                       }}>
                         {cat.replace(/_/g, ' ')} {val.toFixed(2)}
                       </span>
@@ -121,9 +136,9 @@ function PostMarker({ post, cluster, onClick, analyzed, isSelected }: { post: Po
                 </div>
                 <div style={{ marginTop: 6 }}>
                   <span style={{
-                    fontSize: 9, padding: '2px 8px', borderRadius: 4, fontWeight: 600,
-                    background: `${SEV_COLORS[analyzed.severity_label] ?? '#888'}22`,
-                    color: SEV_COLORS[analyzed.severity_label] ?? '#888',
+                    fontSize: 9, padding: '2px 8px', borderRadius: 4, fontWeight: 700,
+                    background: `${SEV_COLORS[analyzed.severity_label] ?? '#888'}44`,
+                    color: SEV_TEXT_COLORS[analyzed.severity_label] ?? '#555',
                     textTransform: 'uppercase', letterSpacing: 0.3,
                   }}>
                     {analyzed.severity_label?.replace(/_/g, ' ')}
