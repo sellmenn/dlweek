@@ -2,12 +2,12 @@
 
 ![Architecture Diagram](architecture.png)
 
-An end-to-end machine learning system that analyzes social media posts during and right after disasters to predict emergency resource needs from differing clusters and visualize them on an interactive map for better resource strategistion (e g. how to distribute their limited personnels across different victim clusters). Combines multimodal deep learning (CLIP), spatial clustering (DBSCAN), and a trained neural network classifier with a React + Leaflet frontend and LLM-powered crisis summaries.
+An end-to-end machine learning system that analyzes social media posts during and right after disasters to predict emergency resource needs from differing clusters and visualize them on an interactive map for better resource strategization (e.g. how to distribute limited personnel across different victim clusters). Combines multimodal deep learning (CLIP), spatial clustering (DBSCAN), and a trained neural network classifier with a React + Leaflet frontend and LLM-powered crisis summaries.
 
 ## Tech Stack
 
 **Backend:** Python, Flask, PyTorch, CLIP ViT-B/32, ViT (damage severity), scikit-learn (DBSCAN), OpenAI API
-**Frontend:** React 19, TypeScript, Vite 7, Tailwind CSS 4, Leaflet, Zustand, React Query
+**Frontend:** React 19, TypeScript, Vite 7, Tailwind CSS 4, Leaflet, Zustand
 
 ## Quick Start
 
@@ -44,12 +44,12 @@ npm run dev
 
 ```bash
 # 1. Prepare data from CrisisMMD dataset
-python prepare_data.py --crisismmd CrisisMMD_v2.0 --output data/posts.csv --sample 1000
+python prepare_data.py --crisismmd CrisisMMD_v2.0 --output data/posts.csv
 
 # 2. Generate pseudo-labels with GPT-4o (requires OPENAI_API_KEY in .env)
 python generate_labels.py --data-dir CrisisMMD_v2.0 --csv data/posts.csv --output data/labels.json
 
-# 3. Train the model
+# 3. Train the model (leave-one-disaster-out CV + final retrain on all data)
 python train.py --labels data/labels.json --data-dir CrisisMMD_v2.0 --epochs 200 --output checkpoints/model.pt
 ```
 
@@ -58,34 +58,32 @@ python train.py --labels data/labels.json --data-dir CrisisMMD_v2.0 --epochs 200
 ```
 Crisis Social Media Posts (image + caption + coordinates)
         │
-        ▼
-   DBSCAN Clustering (geographic grouping)
-        │
-        ▼
-   CLIP ViT-B/32 Encoder
-   ├── Image  → 512-dim embedding
-   └── Caption → 512-dim embedding
-        │
-        ▼ concatenate (1024-dim)
-        │
-   ResourceClassifier (MLP: 1024→512→256→5)
-        │
-        ▼
-   Per-post resource scores:
-   [infrastructure, food, shelter, sanitation_water, medication]
-        │
-        ▼
-   ViT Damage Severity Classifier (ViT-B/16, 3-class)
-   → little_or_none | mild | severe
-        │
-        ▼
-   Cluster-level aggregation + weighted severity
-        │
-        ▼
-   Flask API (REST + SSE streaming)
-        │
-        ▼
-   React Frontend (Leaflet map with real-time visualization)
+        ├──────────────────────────────────┐
+        ▼                                  ▼
+   DBSCAN Clustering                  Per-post inference (streamed via SSE)
+   (geographic grouping               ├── CLIP ViT-B/32 Encoder
+    at load time)                     │   ├── Image  → 512-dim embedding
+                                      │   └── Caption → 512-dim embedding
+                                      │         │
+                                      │         ▼ concatenate (1024-dim)
+                                      │         │
+                                      │   ResourceClassifier (MLP: 1024→512→256→5)
+                                      │   → [infrastructure, food, shelter,
+                                      │      sanitation_water, medication]
+                                      │
+                                      └── ViT Damage Severity Classifier (3-class)
+                                          → little_or_none | mild | severe
+        │                                  │
+        └──────────────────────────────────┘
+                        │
+                        ▼
+          Cluster-level aggregation + weighted severity
+                        │
+                        ▼
+          Flask API (REST + SSE streaming)
+                        │
+                        ▼
+          React Frontend (Leaflet map + real-time visualization)
 ```
 
 ## Key Innovations
@@ -94,7 +92,7 @@ Crisis Social Media Posts (image + caption + coordinates)
 
 2. **Multimodal CLIP Encoding** — Concatenates image and text embeddings from CLIP ViT-B/32 into a 1024-dim feature vector, capturing both visual damage and textual context.
 
-3. **ViT Damage Severity Classification** — A fine-tuned Vision Transformer (ViT-B/16) classifies each post's image into three damage severity levels (little_or_none, mild, severe), replacing heuristic-based severity estimation with learned visual features.
+3. **ViT Damage Severity Classification** — A fine-tuned Vision Transformer classifies each post's image into three damage severity levels (little_or_none, mild, severe), replacing heuristic-based severity estimation with learned visual features.
 
 4. **Real-Time SSE Streaming** — Server-Sent Events stream inference progress to the frontend, enabling live marker animation as posts are analyzed.
 
@@ -105,7 +103,7 @@ Crisis Social Media Posts (image + caption + coordinates)
 ## Project Structure
 
 ```
-├── train.py              # Training pipeline (BCE loss, early stopping, LR scheduling)
+├── train.py              # Training pipeline (LODO CV, BCE loss, balanced sampling, early stopping)
 ├── model.py              # ResourceClassifier MLP (1024→512→256→5 with sigmoid)
 ├── encoder.py            # CLIP ViT-B/32 wrapper for image/text encoding
 ├── clustering.py         # DBSCAN spatial clustering
@@ -122,7 +120,7 @@ Crisis Social Media Posts (image + caption + coordinates)
 │   │   │   └── widgets/       # GlassCard, StatCard, TimerCard, InferenceWidgets
 │   │   ├── types/           # TypeScript interfaces (Post, Cluster, Crisis)
 │   │   ├── store/           # Zustand stores (posts, predict, map, filter, crisis)
-│   │   └── hooks/           # Custom hooks (usePosts, usePredict, useMapClusters)
+│   │   └── hooks/           # Custom hooks (usePosts, useCrisisData)
 │   ├── package.json
 │   └── vite.config.ts
 ├── CrisisMMD_v2.0/       # Dataset (not included)
@@ -140,6 +138,8 @@ Uses [CrisisMMD](https://crisisnlp.qcri.org/crisismmd), a multimodal crisis data
 
 | Endpoint         | Method | Description                                                       |
 | ---------------- | ------ | ----------------------------------------------------------------- |
+| `/api/disasters` | GET    | Lists available disasters with max post counts                    |
+| `/api/load`      | GET    | Switches active disaster and sample size (`?disaster=...&sample=...`) |
 | `/api/posts`     | GET    | Returns all posts with cluster assignments                        |
 | `/api/predict`   | GET    | SSE stream — runs inference on all posts, streams progress events |
 | `/api/summarize` | POST   | Generates an LLM-powered crisis situation summary                 |
