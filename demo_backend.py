@@ -514,12 +514,34 @@ RESOURCE_TEAM_MAP = {
     "medication": "mobile medical unit",
 }
 
-RESOURCE_SUPPLY_MAP = {
-    "infrastructure": "portable generators, heavy tools, tarps",
-    "food": "MREs, community kitchen kit, water bottles",
-    "shelter": "emergency tarps, cots, blankets, hygiene kits",
-    "sanitation_water": "water purification tablets, portable latrines, water containers",
-    "medication": "trauma kits, chronic-care medication, first-aid supplies",
+# Per-category supply items with units-per-affected-person ratios
+RESOURCE_SUPPLY_SPECS = {
+    "infrastructure": [
+        ("portable generators", 0.005),   # 1 per 200 affected
+        ("heavy tool kits", 0.02),         # 1 per 50 affected
+        ("tarps", 0.5),                    # 1 per 2 affected
+    ],
+    "food": [
+        ("MREs", 3.0),                    # 3 per affected (3 meals)
+        ("water bottles", 2.0),            # 2 per affected
+        ("community kitchen kits", 0.002), # 1 per 500 affected
+    ],
+    "shelter": [
+        ("emergency tarps", 0.5),          # 1 per 2 affected
+        ("cots", 0.3),                     # ~1 per 3 affected
+        ("blankets", 1.0),                 # 1 per affected
+        ("hygiene kits", 0.5),             # 1 per 2 affected
+    ],
+    "sanitation_water": [
+        ("water purification tablets", 4.0),  # 4 per affected
+        ("portable latrines", 0.01),          # 1 per 100 affected
+        ("5-gal water containers", 0.2),      # 1 per 5 affected
+    ],
+    "medication": [
+        ("first-aid kits", 0.1),           # 1 per 10 affected
+        ("trauma kits", 0.02),             # 1 per 50 affected
+        ("chronic-care med packs", 0.05),  # 1 per 20 affected
+    ],
 }
 
 RESOURCE_LABELS = {
@@ -530,15 +552,20 @@ RESOURCE_LABELS = {
     "medication": "Medication",
 }
 
+# 1 team per TEAM_RATIO affected people
+TEAM_RATIO = 500
+
 
 def compute_dispatch(cluster_data):
     """
-    Deterministically compute priority, timeline, and resource allocation
-    from cluster scores.
+    Deterministically compute priority, timeline, resource allocation,
+    and concrete supply/personnel quantities from cluster scores.
 
     urgency = 0.6 * weighted_severity + 0.4 * max(resource_scores)
     allocation = demand_weight / sum(demand_weights)
     demand_weight = estimated_affected * urgency
+    team_count = max(1, est_affected / TEAM_RATIO)
+    supply_qty = est_affected * per_item_ratio
     """
     SEVERITY_WEIGHTS = {"severe": 1.0, "mild": 0.3, "little_or_none": 0.1}
 
@@ -585,6 +612,19 @@ def compute_dispatch(cluster_data):
 
         alloc_pct = round(e["demand_weight"] / total_demand * 100)
         top = e["top_category"]
+        affected = e["est_affected"]
+
+        # Compute concrete team count
+        team_count = max(1, round(affected / TEAM_RATIO))
+        team_type = RESOURCE_TEAM_MAP.get(top, "general response team")
+
+        # Compute concrete supply quantities
+        specs = RESOURCE_SUPPLY_SPECS.get(top, [])
+        supply_items = []
+        for item_name, ratio in specs:
+            qty = max(1, round(affected * ratio))
+            supply_items.append(f"{qty:,} {item_name}")
+        supplies_str = ", ".join(supply_items) if supply_items else "general emergency supplies"
 
         priorities.append({
             "cluster": e["name"],
@@ -595,10 +635,12 @@ def compute_dispatch(cluster_data):
 
         dispatch.append({
             "cluster": e["name"],
-            "teams": RESOURCE_TEAM_MAP.get(top, "general response team"),
-            "supplies": RESOURCE_SUPPLY_MAP.get(top, "general emergency supplies"),
+            "team_count": team_count,
+            "teams": team_type,
+            "supplies": supplies_str,
             "timeline": timeline,
             "allocation_pct": alloc_pct,
+            "est_affected": round(affected),
         })
 
     return priorities, dispatch
@@ -626,17 +668,20 @@ def api_summarize():
 
 1. A 2-3 sentence situation overview. Be specific about which areas are worst hit and what resource needs dominate.
 
-2. Specific dispatch recommendations: for each cluster, recommend exact personnel counts and supply quantities to deploy, based on its allocation percentage and estimated affected population. Be concrete (e.g. "Deploy 3 medical teams with 500 trauma kits to San Juan" not "send medical help").
+2. Dispatch recommendations: restate the computed dispatch plan below as clear action items. Use ONLY the numbers already computed — do not invent new quantities. Each bullet should read like a dispatch order (e.g. "Deploy 3 water purification units with 4,400 water purification tablets to Ponce (within 6h)").
 
-Data:
-- Total posts analyzed: {data.get('totalPosts', 0)}
-- Computed dispatch plan: {json.dumps(dispatch)}
-- Priority ranking: {json.dumps(priorities)}
+Computed dispatch plan (these numbers are derived from model outputs — use them exactly):
+{json.dumps(dispatch, indent=2)}
+
+Priority ranking:
+{json.dumps(priorities, indent=2)}
+
+Total posts analyzed: {data.get('totalPosts', 0)}
 
 Format:
 <situation overview, 2-3 sentences>
 ---
-<dispatch recommendations, one bullet per cluster using "- " prefix>"""
+<dispatch recommendations, one bullet per cluster using "- " prefix, using ONLY the team_count, teams, supplies, and timeline values from the computed plan>"""
 
             client = openai.OpenAI(api_key=api_key)
             resp = client.chat.completions.create(

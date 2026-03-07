@@ -248,6 +248,19 @@ function DashCard({
   );
 }
 
+const inputStyle: React.CSSProperties = {
+  width: 56,
+  padding: "3px 6px",
+  fontSize: 11,
+  fontWeight: 600,
+  color: "white",
+  background: "rgba(255,255,255,0.08)",
+  border: "1px solid rgba(255,255,255,0.12)",
+  borderRadius: 4,
+  textAlign: "right",
+  outline: "none",
+};
+
 /** AI Dashboard — structured dispatch plan on the right side */
 function AIDashboard({
   visible,
@@ -259,6 +272,7 @@ function AIDashboard({
   summaryLoading: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [totalTeams, setTotalTeams] = useState<number | null>(null);
   const show = visible && (summaryLoading || !!plan);
 
   return (
@@ -348,6 +362,29 @@ function AIDashboard({
           </div>
         ) : plan ? (
           <>
+            {/* Available Personnel */}
+            <DashCard title="Available Personnel">
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 10, color: "rgba(255,255,255,0.5)" }}>Total teams available:</span>
+                <input
+                  type="number"
+                  min={1}
+                  placeholder="auto"
+                  value={totalTeams ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setTotalTeams(v ? Math.max(1, parseInt(v, 10) || 1) : null);
+                  }}
+                  style={inputStyle}
+                />
+              </div>
+              {totalTeams !== null && (
+                <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", marginTop: 4 }}>
+                  Teams distributed by allocation %
+                </div>
+              )}
+            </DashCard>
+
             {/* Situation Overview */}
             <DashCard title="Situation Overview">
               <div style={{ fontSize: 11, lineHeight: 1.6, color: "rgba(255,255,255,0.7)" }}>
@@ -459,7 +496,13 @@ function AIDashboard({
                     <div style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", lineHeight: 1.5 }}>
                       <div style={{ marginBottom: 2 }}>
                         <span style={{ color: "rgba(255,255,255,0.25)", marginRight: 4 }}>DEPLOY</span>
-                        {d.teams}
+                        {totalTeams !== null
+                          ? `${Math.max(1, Math.round(totalTeams * d.allocation_pct / 100))} of ${totalTeams}`
+                          : d.team_count}{" "}
+                        {d.teams}{(totalTeams !== null ? Math.max(1, Math.round(totalTeams * d.allocation_pct / 100)) : d.team_count) > 1 ? "s" : ""}
+                        <span style={{ color: "rgba(255,255,255,0.2)", marginLeft: 4 }}>
+                          (~{d.est_affected.toLocaleString()} affected)
+                        </span>
                       </div>
                       <div>
                         <span style={{ color: "rgba(255,255,255,0.25)", marginRight: 4 }}>SUPPLIES</span>

@@ -194,6 +194,45 @@ $$\text{alloc}_k = \frac{A_k \cdot U_k}{\sum_j A_j \cdot U_j}$$
 
 Each cluster receives a share of available resources proportional to its demand weight (estimated affected population $\times$ urgency).
 
+**Deployment Timeline:**
+
+$$\text{timeline}_k = \begin{cases} \text{immediate} & U_k \geq 0.5 \\ \text{within 6h} & 0.3 \leq U_k < 0.5 \\ \text{within 24h} & 0.15 \leq U_k < 0.3 \\ \text{within 48h} & U_k < 0.15 \end{cases}$$
+
+**Team Count (default):**
+
+$$T_k = \max\!\left(1,\; \left\lfloor \frac{A_k}{500} \right\rceil \right)$$
+
+1 team per 500 estimated affected people, minimum 1. The team type is determined by the cluster's top resource need (e.g., water purification unit, mobile medical unit).
+
+When the user overrides with a total available team count $T_\text{total}$:
+
+$$T_k = \max\!\left(1,\; \left\lfloor \text{alloc}_k \cdot T_\text{total} \right\rceil \right)$$
+
+**Supply Quantities:**
+
+$$Q_{k,s} = \max\!\left(1,\; \left\lfloor A_k \cdot r_s \right\rceil \right)$$
+
+where $r_s$ is the per-affected-person ratio for supply item $s$, determined by the cluster's top resource category:
+
+| Category | Supply Item | Ratio ($r_s$) |
+|----------|-------------|---------------|
+| Infrastructure | portable generators | 0.005 (1 per 200) |
+| Infrastructure | heavy tool kits | 0.02 (1 per 50) |
+| Infrastructure | tarps | 0.5 (1 per 2) |
+| Food | MREs | 3.0 (3 meals) |
+| Food | water bottles | 2.0 |
+| Food | community kitchen kits | 0.002 (1 per 500) |
+| Shelter | emergency tarps | 0.5 (1 per 2) |
+| Shelter | cots | 0.3 (1 per 3) |
+| Shelter | blankets | 1.0 |
+| Shelter | hygiene kits | 0.5 (1 per 2) |
+| Water & Sanitation | purification tablets | 4.0 |
+| Water & Sanitation | portable latrines | 0.01 (1 per 100) |
+| Water & Sanitation | 5-gal water containers | 0.2 (1 per 5) |
+| Medication | first-aid kits | 0.1 (1 per 10) |
+| Medication | trauma kits | 0.02 (1 per 50) |
+| Medication | chronic-care med packs | 0.05 (1 per 20) |
+
 **Validation Metric — Mean Absolute Error (MAE):**
 
 $$\text{MAE} = \frac{1}{5} \sum_{c=1}^{5} \frac{1}{N} \sum_{i=1}^{N} |y_{ic} - \hat{y}_{ic}|$$
