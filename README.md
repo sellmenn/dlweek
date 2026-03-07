@@ -182,17 +182,15 @@ $$A_k = P_k \cdot \frac{n_k}{N} \cdot \alpha$$
 
 where $P_k$ is the population of cluster $k$'s nearest city, $n_k$ is the number of posts in cluster $k$, $N$ is the total number of posts, and $\alpha = 0.01$ is a scaling factor representing the estimated fraction of a city's population affected per unit of social media signal density. The global estimate is $\sum_k A_k$.
 
-**Dispatch Urgency Score:**
+**Priority Level:**
 
-$$U_k = 0.6 \cdot S_k + 0.4 \cdot \max_c(\hat{y}_{kc})$$
-
-where $S_k$ is the cluster's weighted severity and $\max_c(\hat{y}_{kc})$ is the highest resource score across all categories. Priority level: CRITICAL ($U_k \geq 0.5$), HIGH ($0.3 \leq U_k < 0.5$), MEDIUM ($0.15 \leq U_k < 0.3$), LOW ($U_k < 0.15$).
+Priority is assigned based on a combined score $U_k = 0.6 \cdot S_k + 0.4 \cdot \max_c(\hat{y}_{kc})$, where $S_k$ is the cluster's weighted severity (severe=1.0, mild=0.3, low=0.1) and $\max_c(\hat{y}_{kc})$ is the highest resource score. Thresholds: CRITICAL ($U_k \geq 0.5$), HIGH ($0.3 \leq U_k < 0.5$), MEDIUM ($0.15 \leq U_k < 0.3$), LOW ($U_k < 0.15$).
 
 **Resource Allocation Proportion:**
 
 $$\text{alloc}_k = \frac{A_k \cdot U_k}{\sum_j A_j \cdot U_j}$$
 
-Each cluster receives a share of available resources proportional to its demand weight (estimated affected population $\times$ urgency).
+Each cluster receives a share of available resources proportional to its demand weight (estimated affected population $\times$ severity score).
 
 **Deployment Timeline:**
 
@@ -204,15 +202,15 @@ $$T_k = \max\!\left(1,\; \left\lfloor \frac{A_k}{500} \right\rceil \right)$$
 
 1 team per 500 estimated affected people, minimum 1. The team type is determined by the cluster's top resource need (e.g., water purification unit, mobile medical unit).
 
-When the user overrides with a total available team count $T_\text{total}$:
+When the user sets an available inventory $T_\text{avail}$ for a specific team type, clusters sharing that team type redistribute proportionally:
 
-$$T_k = \max\!\left(1,\; \left\lfloor \text{alloc}_k \cdot T_\text{total} \right\rceil \right)$$
+$$T_k = \max\!\left(1,\; \left\lfloor \text{alloc}_k \cdot T_\text{avail} \right\rceil \right)$$
 
 **Supply Quantities:**
 
 $$Q_{k,s} = \max\!\left(1,\; \left\lfloor A_k \cdot r_s \right\rceil \right)$$
 
-where $r_s$ is the per-affected-person ratio for supply item $s$, determined by the cluster's top resource category:
+where $r_s$ is the per-affected-person ratio for supply item $s$, determined by the cluster's top resource category. Total demand across all clusters is $\sum_k Q_{k,s}$; the Resource Overview card compares this to user-set inventory caps and flags shortages in red:
 
 | Category | Supply Item | Ratio ($r_s$) |
 |----------|-------------|---------------|
@@ -280,10 +278,12 @@ Activates when zoomed into a cluster or clicking a cluster row:
 
 ### Right Sidebar — AI Dispatch Dashboard
 
-- **Collapsible panel** — Appears after analysis completes, scrollable with multiple grid cards.
+- **Collapsible panel** — Appears after analysis completes, with multiple scrollable glassmorphism cards (each card has a `maxHeight` and scrolls independently).
+- **Resource Inventory** — Configurable inventory inputs for all team types and supply items, grouped by aid category. Team types: Infrastructure Repair, Food Distribution, Shelter Management, Water Purification, Mobile Medical. Supply items mirror the per-category ratios (see Formulas). Defaults are computed from `est_affected` and ratios; leave blank for unlimited.
+- **Resource Overview** — Horizontal bar chart visualisation of demand vs available inventory for every team type and supply item. Bars are green when inventory is sufficient, red when demand exceeds available stock (shortage). Items without an inventory cap show a neutral bar with demand quantity only.
 - **Situation Overview** — LLM-generated 2-3 sentence summary of the crisis situation (the only part produced by GPT; everything else is deterministic).
-- **Priority Ranking** — Clusters ranked by computed urgency score. Each row shows a color-coded priority badge (CRITICAL / HIGH / MEDIUM / LOW), urgency percentage, and top resource need. Urgency is calculated as `0.6 × weighted_severity + 0.4 × max(resource_scores)`.
-- **Resource Allocation** — Per-cluster dispatch orders with proportional allocation percentages, deployment timelines (immediate / within 6h / 24h / 48h), recommended team types, and supply lists. Allocation is computed as `demand_weight / total_demand`, where `demand_weight = estimated_affected × urgency`. Each entry includes a visual allocation bar and is color-coded by timeline urgency.
+- **Priority Ranking** — Clusters ranked by severity level. Each row shows a color-coded priority badge (CRITICAL / HIGH / MEDIUM / LOW) and top resource need.
+- **Resource Allocation** — Per-cluster dispatch orders with proportional allocation percentages, deployment timelines (immediate / within 6h / 24h / 48h), recommended team types, team counts (respects inventory overrides: `max(1, round(available × allocation_pct / 100))`), estimated affected population, and itemised supply quantities. Each entry includes a visual allocation bar and is color-coded by timeline.
 
 ### Real-Time Streaming
 

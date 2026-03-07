@@ -629,7 +629,6 @@ def compute_dispatch(cluster_data):
         priorities.append({
             "cluster": e["name"],
             "level": level,
-            "urgency": round(u, 3),
             "top_need": RESOURCE_LABELS.get(top, top),
         })
 
@@ -654,9 +653,8 @@ def api_summarize():
 
     priorities, dispatch = compute_dispatch(cluster_data)
 
-    # Try to get LLM situation overview + dispatch recommendation
+    # Try to get LLM situation overview
     situation = None
-    recommendation = ""
     try:
         from dotenv import load_dotenv
         load_dotenv()
@@ -664,39 +662,23 @@ def api_summarize():
         if api_key:
             import openai
             disaster_label = DISASTER_CONFIGS[ACTIVE_DISASTER]["label"]
-            prompt = f"""You are a crisis response dispatch coordinator. Based on the following post-disaster data from {disaster_label}, produce TWO things separated by "---":
-
-1. A 2-3 sentence situation overview. Be specific about which areas are worst hit and what resource needs dominate.
-
-2. Dispatch recommendations: restate the computed dispatch plan below as clear action items. Use ONLY the numbers already computed — do not invent new quantities. Each bullet should read like a dispatch order (e.g. "Deploy 3 water purification units with 4,400 water purification tablets to Ponce (within 6h)").
-
-Computed dispatch plan (these numbers are derived from model outputs — use them exactly):
-{json.dumps(dispatch, indent=2)}
+            prompt = f"""You are a crisis response dispatch coordinator. Based on the following post-disaster data from {disaster_label}, write a 2-3 sentence situation overview. Be specific about which areas are worst hit and what resource needs dominate.
 
 Priority ranking:
 {json.dumps(priorities, indent=2)}
 
 Total posts analyzed: {data.get('totalPosts', 0)}
 
-Format:
-<situation overview, 2-3 sentences>
----
-<dispatch recommendations, one bullet per cluster using "- " prefix, using ONLY the team_count, teams, supplies, and timeline values from the computed plan>"""
+Write ONLY the 2-3 sentence overview, nothing else."""
 
             client = openai.OpenAI(api_key=api_key)
             resp = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=600,
+                max_tokens=300,
                 temperature=0.3,
             )
-            raw = resp.choices[0].message.content.strip()
-            if "---" in raw:
-                parts = raw.split("---", 1)
-                situation = parts[0].strip()
-                recommendation = parts[1].strip()
-            else:
-                situation = raw
+            situation = resp.choices[0].message.content.strip()
     except Exception:
         pass
 
@@ -711,7 +693,6 @@ Format:
             "situation": situation,
             "priorities": priorities,
             "dispatch": dispatch,
-            "recommendation": recommendation,
         }
     })
 

@@ -27,9 +27,8 @@ type Phase = "idle" | "predicting" | "animating" | "done";
 
 export interface DispatchPlan {
   situation: string;
-  priorities: { cluster: string; level: string; urgency: number; top_need: string }[];
+  priorities: { cluster: string; level: string; top_need: string }[];
   dispatch: { cluster: string; team_count: number; teams: string; supplies: string; timeline: string; allocation_pct: number; est_affected: number }[];
-  recommendation: string;
 }
 
 /** Convex hull via Graham scan — returns the true edge points in order. */

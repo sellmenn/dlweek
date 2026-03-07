@@ -216,6 +216,58 @@ const TIMELINE_COLORS: Record<string, string> = {
   "within 48h": "#22c55e",
 };
 
+const TEAM_TYPES: [string, string][] = [
+  ["infrastructure repair crew", "Infrastructure Repair"],
+  ["food distribution team", "Food Distribution"],
+  ["shelter management team", "Shelter Management"],
+  ["water purification unit", "Water Purification"],
+  ["mobile medical unit", "Mobile Medical"],
+];
+
+const SUPPLY_SPECS: { category: Category; label: string; items: { name: string; ratio: number }[] }[] = [
+  {
+    category: "infrastructure", label: "Infrastructure",
+    items: [
+      { name: "Portable Generators", ratio: 0.005 },
+      { name: "Heavy Tool Kits", ratio: 0.02 },
+      { name: "Tarps", ratio: 0.5 },
+    ],
+  },
+  {
+    category: "food", label: "Food",
+    items: [
+      { name: "MREs", ratio: 3.0 },
+      { name: "Water Bottles", ratio: 2.0 },
+      { name: "Community Kitchen Kits", ratio: 0.002 },
+    ],
+  },
+  {
+    category: "shelter", label: "Shelter",
+    items: [
+      { name: "Emergency Tarps", ratio: 0.5 },
+      { name: "Cots", ratio: 0.3 },
+      { name: "Blankets", ratio: 1.0 },
+      { name: "Hygiene Kits", ratio: 0.5 },
+    ],
+  },
+  {
+    category: "sanitation_water", label: "Water & Sanitation",
+    items: [
+      { name: "Water Purification Tablets", ratio: 4.0 },
+      { name: "Portable Latrines", ratio: 0.01 },
+      { name: "5-Gal Water Containers", ratio: 0.2 },
+    ],
+  },
+  {
+    category: "medication", label: "Medication",
+    items: [
+      { name: "First-Aid Kits", ratio: 0.1 },
+      { name: "Trauma Kits", ratio: 0.02 },
+      { name: "Chronic-Care Med Packs", ratio: 0.05 },
+    ],
+  },
+];
+
 /** Dashboard card wrapper with consistent glassmorphism */
 function DashCard({
   title,
@@ -272,8 +324,15 @@ function AIDashboard({
   summaryLoading: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(false);
-  const [totalTeams, setTotalTeams] = useState<number | null>(null);
+  const [teamInventory, setTeamInventory] = useState<Record<string, number | null>>({});
+  const [supplyInventory, setSupplyInventory] = useState<Record<string, number | null>>({});
   const show = visible && (summaryLoading || !!plan);
+
+  const totalAffected = plan?.dispatch.reduce((s, d) => s + d.est_affected, 0) ?? 0;
+  const teamDemand: Record<string, number> = {};
+  if (plan) for (const d of plan.dispatch) teamDemand[d.teams] = (teamDemand[d.teams] ?? 0) + d.team_count;
+  const supplyDemand: Record<string, number> = {};
+  for (const spec of SUPPLY_SPECS) for (const item of spec.items) supplyDemand[item.name] = Math.max(1, Math.round(totalAffected * item.ratio));
 
   return (
     <div
@@ -362,31 +421,116 @@ function AIDashboard({
           </div>
         ) : plan ? (
           <>
-            {/* Available Personnel */}
-            <DashCard title="Available Personnel">
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 10, color: "rgba(255,255,255,0.5)" }}>Total teams available:</span>
-                <input
-                  type="number"
-                  min={1}
-                  placeholder="auto"
-                  value={totalTeams ?? ""}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setTotalTeams(v ? Math.max(1, parseInt(v, 10) || 1) : null);
-                  }}
-                  style={inputStyle}
-                />
-              </div>
-              {totalTeams !== null && (
-                <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", marginTop: 4 }}>
-                  Teams distributed by allocation %
+            {/* Resource Inventory */}
+            <DashCard title="Resource Inventory" maxHeight={300}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {/* Teams */}
+                <div>
+                  <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.1em" }}>Teams</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    {TEAM_TYPES.map(([key, label]) => (
+                      <div key={key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                        <span style={{ fontSize: 10, color: "rgba(255,255,255,0.5)" }}>{label}</span>
+                        <input
+                          type="number" min={0}
+                          placeholder={String(teamDemand[key] ?? 0)}
+                          value={teamInventory[key] ?? ""}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setTeamInventory((prev) => ({ ...prev, [key]: v ? Math.max(0, parseInt(v, 10) || 0) : null }));
+                          }}
+                          style={inputStyle}
+                        />
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              )}
+                {/* Supplies by category */}
+                {SUPPLY_SPECS.map((spec) => (
+                  <div key={spec.category}>
+                    <div style={{ fontSize: 9, color: CATEGORY_COLORS[spec.category], marginBottom: 6, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em" }}>{spec.label}</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      {spec.items.map((item) => (
+                        <div key={item.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.5)" }}>{item.name}</span>
+                          <input
+                            type="number" min={0}
+                            placeholder="—"
+                            value={supplyInventory[item.name] ?? ""}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setSupplyInventory((prev) => ({ ...prev, [item.name]: v ? Math.max(0, parseInt(v, 10) || 0) : null }));
+                            }}
+                            style={inputStyle}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                <div style={{ fontSize: 9, color: "rgba(255,255,255,0.25)" }}>
+                  Set available quantities; leave blank for unlimited
+                </div>
+              </div>
+            </DashCard>
+
+            {/* Resource Overview */}
+            <DashCard title="Resource Overview" maxHeight={320}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {/* Teams overview */}
+                <div>
+                  <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.1em" }}>Teams</div>
+                  {TEAM_TYPES.map(([key, label]) => {
+                    const demand = teamDemand[key] ?? 0;
+                    if (demand === 0) return null;
+                    const available = teamInventory[key];
+                    const shortage = available != null && demand > available;
+                    const pct = available != null && available > 0 ? Math.min(100, (demand / available) * 100) : 100;
+                    return (
+                      <div key={key} style={{ marginBottom: 4 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "rgba(255,255,255,0.5)", marginBottom: 2 }}>
+                          <span>{label}</span>
+                          <span style={{ color: shortage ? "#ef4444" : available != null ? "#22c55e" : "rgba(255,255,255,0.4)" }}>
+                            {demand}{available != null ? ` / ${available}` : ""}
+                          </span>
+                        </div>
+                        <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                          <div style={{ height: "100%", borderRadius: 2, width: `${available != null ? pct : 100}%`, background: shortage ? "#ef4444" : available != null ? "#22c55e" : "rgba(255,255,255,0.15)", transition: "width 0.3s" }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* Supplies overview */}
+                {SUPPLY_SPECS.map((spec) => (
+                  <div key={spec.category}>
+                    <div style={{ fontSize: 9, color: CATEGORY_COLORS[spec.category], marginBottom: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em" }}>{spec.label}</div>
+                    {spec.items.map((item) => {
+                      const demand = supplyDemand[item.name] ?? 0;
+                      const available = supplyInventory[item.name];
+                      const shortage = available != null && demand > available;
+                      const pct = available != null && available > 0 ? Math.min(100, (demand / available) * 100) : 100;
+                      return (
+                        <div key={item.name} style={{ marginBottom: 4 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "rgba(255,255,255,0.5)", marginBottom: 2 }}>
+                            <span>{item.name}</span>
+                            <span style={{ color: shortage ? "#ef4444" : available != null ? "#22c55e" : "rgba(255,255,255,0.4)" }}>
+                              {demand.toLocaleString()}{available != null ? ` / ${available.toLocaleString()}` : ""}
+                            </span>
+                          </div>
+                          <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                            <div style={{ height: "100%", borderRadius: 2, width: `${available != null ? pct : 100}%`, background: shortage ? "#ef4444" : available != null ? "#22c55e" : "rgba(255,255,255,0.15)", transition: "width 0.3s" }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
             </DashCard>
 
             {/* Situation Overview */}
-            <DashCard title="Situation Overview">
+            <DashCard title="Situation Overview" maxHeight={140}>
               <div style={{ fontSize: 11, lineHeight: 1.6, color: "rgba(255,255,255,0.7)" }}>
                 {plan.situation}
               </div>
@@ -422,14 +566,9 @@ function AIDashboard({
                       {p.level}
                     </span>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: "white" }}>
-                          {p.cluster}
-                        </span>
-                        <span style={{ fontSize: 9, color: "rgba(255,255,255,0.25)" }}>
-                          {Math.round(p.urgency * 100)}%
-                        </span>
-                      </div>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: "white" }}>
+                        {p.cluster}
+                      </span>
                       <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginTop: 1 }}>
                         Top need: {p.top_need}
                       </div>
@@ -496,10 +635,13 @@ function AIDashboard({
                     <div style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", lineHeight: 1.5 }}>
                       <div style={{ marginBottom: 2 }}>
                         <span style={{ color: "rgba(255,255,255,0.25)", marginRight: 4 }}>DEPLOY</span>
-                        {totalTeams !== null
-                          ? `${Math.max(1, Math.round(totalTeams * d.allocation_pct / 100))} of ${totalTeams}`
-                          : d.team_count}{" "}
-                        {d.teams}{(totalTeams !== null ? Math.max(1, Math.round(totalTeams * d.allocation_pct / 100)) : d.team_count) > 1 ? "s" : ""}
+                        {(() => {
+                          const available = teamInventory[d.teams];
+                          const count = available != null
+                            ? Math.max(1, Math.round(available * d.allocation_pct / 100))
+                            : d.team_count;
+                          return `${count} ${d.teams}${count > 1 ? "s" : ""}`;
+                        })()}
                         <span style={{ color: "rgba(255,255,255,0.2)", marginLeft: 4 }}>
                           (~{d.est_affected.toLocaleString()} affected)
                         </span>
@@ -513,34 +655,6 @@ function AIDashboard({
                 ))}
               </div>
             </DashCard>
-
-            {/* LLM Dispatch Recommendation */}
-            {plan.recommendation && (
-              <DashCard title="Dispatch Recommendation" maxHeight={200}>
-                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                  {plan.recommendation.split("\n").filter(Boolean).map((line, i) => {
-                    const bullet = line.replace(/^[-•]\s*/, "").trim();
-                    if (!bullet) return null;
-                    return (
-                      <div
-                        key={i}
-                        style={{
-                          display: "flex",
-                          alignItems: "flex-start",
-                          gap: 6,
-                          fontSize: 10,
-                          color: "rgba(255,255,255,0.6)",
-                          lineHeight: 1.5,
-                        }}
-                      >
-                        <span style={{ color: "#6c63ff", flexShrink: 0, marginTop: 1 }}>▸</span>
-                        <span>{bullet}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </DashCard>
-            )}
           </>
         ) : null}
       </div>
