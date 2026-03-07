@@ -7,18 +7,18 @@ import { glassStyle } from '../widgets/glassCard'
 
 const CATEGORIES = ['infrastructure', 'food', 'shelter', 'sanitation_water', 'medication']
 const BAR_COLORS: Record<string, string> = {
-  infrastructure: '#e74c3c',
-  food: '#f39c12',
-  shelter: '#3498db',
-  sanitation_water: '#2ecc71',
-  medication: '#9b59b6',
+  infrastructure: '#A893C4',
+  food: '#6DB8A0',
+  shelter: '#7BA7CC',
+  sanitation_water: '#5BBCD6',
+  medication: '#C97B9A',
 }
 const BAR_TEXT_COLORS: Record<string, string> = {
-  infrastructure: '#ff6b5b',
-  food: '#ffc04d',
-  shelter: '#5dade2',
-  sanitation_water: '#58d68d',
-  medication: '#c39bd3',
+  infrastructure: '#C0ADDA',
+  food: '#88D1B8',
+  shelter: '#96BFE0',
+  sanitation_water: '#7BD0E8',
+  medication: '#DE96B2',
 }
 const SEV_COLORS: Record<string, string> = {
   little_or_none: '#22c55e',
@@ -177,12 +177,12 @@ export default function PostMarkers({ posts, clusters, onPostClick, analyzedPost
 
   return (
     <>
-      {posts.map((post, idx) => {
+      {posts.map((post) => {
         const cluster = clusters[String(post.cluster)]
         if (!cluster) return null
         const key = `${post.lat},${post.lon},${post.caption}`
         const analyzed = analyzedMap.get(key)
-        return <PostMarker key={idx} post={post} cluster={cluster} onClick={onPostClick ? () => onPostClick(post) : undefined} analyzed={analyzed} isSelected={selectedPostKey === key} />
+        return <PostMarker key={key} post={post} cluster={cluster} onClick={onPostClick ? () => onPostClick(post) : undefined} analyzed={analyzed} isSelected={selectedPostKey === key} />
       })}
     </>
   )

@@ -4,6 +4,7 @@ import type { AnalyzedPost } from "../../types/post";
 import type { Cluster } from "../../types/cluster";
 import type { Category, CategoryScores } from "../widgets/inferenceWidgets";
 import { glassStyle } from "../widgets/glassCard";
+import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip } from "recharts";
 import type { DispatchPlan } from "./Map";
 
 const CATEGORIES: Category[] = [
@@ -21,11 +22,11 @@ const CATEGORY_LABELS: Record<Category, string> = {
   medication: "Medication",
 };
 const CATEGORY_COLORS: Record<Category, string> = {
-  infrastructure: "#60a5fa",
-  food: "#fbbf24",
-  shelter: "#34d399",
-  sanitation_water: "#22d3ee",
-  medication: "#a78bfa",
+  infrastructure: "#A893C4",
+  food: "#6DB8A0",
+  shelter: "#7BA7CC",
+  sanitation_water: "#5BBCD6",
+  medication: "#C97B9A",
 };
 const SEV_COLORS: Record<string, string> = {
   severe: "#ef4444",
@@ -42,14 +43,19 @@ const SEV_LABELS: Record<string, string> = {
 const AFFECTED_ALPHA = 0.1;
 
 // Real FEMA warehouse inventory for Hurricane Irma
-const FEMA_SUPPLY: { item: string; qty: number; category: Category }[] = [
-  { item: "Water (liters)", qty: 718370, category: "sanitation_water" },
-  { item: "Meals", qty: 250572, category: "food" },
-  { item: "Cots", qty: 4422, category: "shelter" },
-  { item: "Medical Kits", qty: 800, category: "medication" },
-  { item: "Tarps", qty: 13272, category: "shelter" },
-  { item: "Blue Roof Sheeting", qty: 15344, category: "infrastructure" },
+// perCapitaPerDay: Sphere Standards minimum per person per day (where applicable)
+//   Water: 2.5–3 L/person/day → 2.5  |  Meals: 3/person/day
+//   Cots: 1/person (one-time)  |  Medical Kits: 1 per 1000 people (one-time)
+//   Tarps: 1 per 5 people (one-time)  |  Blue Roof Sheeting: 1 per 5 people (one-time)
+const FEMA_SUPPLY: { item: string; qty: number; category: Category; perCapita: number; perDay: boolean }[] = [
+  { item: "Water (liters)", qty: 718370, category: "sanitation_water", perCapita: 2.5, perDay: true },
+  { item: "Meals", qty: 250572, category: "food", perCapita: 3, perDay: true },
+  { item: "Cots", qty: 4422, category: "shelter", perCapita: 1, perDay: false },
+  { item: "Medical Kits", qty: 800, category: "medication", perCapita: 0.001, perDay: false },
+  { item: "Tarps", qty: 13272, category: "shelter", perCapita: 0.2, perDay: false },
+  { item: "Blue Roof Sheeting", qty: 15344, category: "infrastructure", perCapita: 0.2, perDay: false },
 ];
+const RELIEF_DAYS = 3; // planning horizon for per-day items
 
 const card: React.CSSProperties = {
   ...glassStyle,
@@ -254,6 +260,7 @@ function AIDashboard({
   clusterAvgScores: Record<string, CategoryScores>;
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [selectedSupplyCat, setSelectedSupplyCat] = useState<Category | null>(null);
   const show = visible && (summaryLoading || !!plan);
 
   // Per-cluster LLM summary cache
@@ -304,44 +311,58 @@ function AIDashboard({
     }
   }, [focusedCluster, clusterSummaries, fetchClusterSummary]);
 
-  // Compute demand per category from cluster resource scores × estimated affected
+  // Compute demand per item using Sphere Standards per-capita needs
   const supplyDemand = useMemo(() => {
-    // Aggregate supply by category
-    const supply: Record<Category, { items: { name: string; qty: number }[]; total: number }> = {
-      sanitation_water: { items: [], total: 0 },
-      food: { items: [], total: 0 },
-      shelter: { items: [], total: 0 },
-      medication: { items: [], total: 0 },
-      infrastructure: { items: [], total: 0 },
-    };
-    for (const s of FEMA_SUPPLY) {
-      supply[s.category].items.push({ name: s.item, qty: s.qty });
-      supply[s.category].total += s.qty;
-    }
-
-    // Compute demand: sum across clusters of (avg_score × est_affected)
-    // This gives a weighted demand signal per category
-    const demand: Record<Category, number> = {
-      sanitation_water: 0, food: 0, shelter: 0, medication: 0, infrastructure: 0,
-    };
+    // Compute estimated affected per cluster
+    const clusterAffected: Record<string, number> = {};
     let totalAffected = 0;
     for (const [cid, posts] of Object.entries(postsByCluster)) {
       const pop = clusters[cid]?.population ?? 0;
       const affected = totalPosts > 0 ? pop * (posts.length / totalPosts) * AFFECTED_ALPHA : 0;
+      clusterAffected[cid] = affected;
       totalAffected += affected;
+    }
+
+    // For each supply item, compute demand = affected × perCapita × (days if perDay)
+    // Then aggregate by category
+    const supply: Record<Category, { items: { name: string; qty: number; demand: number }[]; totalSupply: number; totalDemand: number }> = {
+      sanitation_water: { items: [], totalSupply: 0, totalDemand: 0 },
+      food: { items: [], totalSupply: 0, totalDemand: 0 },
+      shelter: { items: [], totalSupply: 0, totalDemand: 0 },
+      medication: { items: [], totalSupply: 0, totalDemand: 0 },
+      infrastructure: { items: [], totalSupply: 0, totalDemand: 0 },
+    };
+    for (const s of FEMA_SUPPLY) {
+      const itemDemand = Math.round(totalAffected * s.perCapita * (s.perDay ? RELIEF_DAYS : 1));
+      supply[s.category].items.push({ name: s.item, qty: s.qty, demand: itemDemand });
+      supply[s.category].totalSupply += s.qty;
+      supply[s.category].totalDemand += itemDemand;
+    }
+
+    // Per-cluster demand breakdown weighted by AI resource scores × affected population
+    const clusterDemand: Record<Category, { cid: string; name: string; demand: number }[]> = {
+      sanitation_water: [], food: [], shelter: [], medication: [], infrastructure: [],
+    };
+    for (const [cid] of Object.entries(postsByCluster)) {
+      const affected = clusterAffected[cid] ?? 0;
+      if (affected <= 0) continue;
       const avg = clusterAvgScores[cid];
-      if (!avg) continue;
       for (const cat of CATEGORIES) {
-        demand[cat] += (avg[cat] ?? 0) * affected;
+        // Weight by resource score (AI signal) × affected population
+        const score = avg?.[cat] ?? 0;
+        const weight = score * affected;
+        if (weight > 0) {
+          clusterDemand[cat].push({ cid, name: clusters[cid]?.name ?? cid, demand: weight });
+        }
       }
     }
+    for (const cat of CATEGORIES) clusterDemand[cat].sort((a, b) => b.demand - a.demand);
 
     return CATEGORIES.map((cat) => {
       const s = supply[cat];
-      const d = Math.round(demand[cat]);
-      const ratio = d > 0 ? s.total / d : s.total > 0 ? Infinity : 0;
-      return { category: cat, supply: s.total, supplyItems: s.items, demand: d, ratio };
-    }).sort((a, b) => a.ratio - b.ratio); // worst shortages first
+      const ratio = s.totalDemand > 0 ? s.totalSupply / s.totalDemand : s.totalSupply > 0 ? Infinity : 0;
+      return { category: cat, supply: s.totalSupply, supplyItems: s.items, demand: s.totalDemand, ratio, clusterDemand: clusterDemand[cat] };
+    }).sort((a, b) => a.ratio - b.ratio);
   }, [postsByCluster, clusters, clusterAvgScores, totalPosts]);
 
   const isFocused = focusedCluster !== null;
@@ -411,6 +432,7 @@ function AIDashboard({
           </div>
         ) : plan ? (
           isFocused && focusedData ? (
+            
             <>
               {/* ── CLUSTER-FOCUSED VIEW ── */}
               <DashCard title={`${focusedData.name} — AI Overview`}>
@@ -425,81 +447,180 @@ function AIDashboard({
                   </div>
                 )}
               </DashCard>
+
+              {/* ── Resource Allocation for this cluster ── */}
+              <DashCard title={`${focusedData.name} — Recommended Resource Allocation`}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {supplyDemand.map(({ category, supplyItems, clusterDemand: cd }) => {
+                    const color = CATEGORY_COLORS[category];
+                    const totalWeight = cd.reduce((s, c) => s + c.demand, 0);
+                    const thisCluster = cd.find((c) => c.cid === focusedCluster);
+                    const pct = thisCluster && totalWeight > 0 ? thisCluster.demand / totalWeight : 0;
+                    if (pct === 0) return null;
+                    const allocPct = Math.max(1, Math.round(pct * 100));
+                    return (
+                      <div key={category}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <div style={{ width: 8, height: 8, borderRadius: 2, background: color, flexShrink: 0 }} />
+                            <span style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.85)" }}>
+                              {CATEGORY_LABELS[category]}
+                            </span>
+                          </div>
+                          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>
+                            {allocPct}% of supply
+                          </span>
+                        </div>
+                        <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden", marginBottom: 4 }}>
+                          <div style={{ height: "100%", borderRadius: 2, width: `${allocPct}%`, background: color, opacity: 0.8, transition: "width 0.3s" }} />
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 1, paddingLeft: 14 }}>
+                          {supplyItems.filter((si) => si.qty > 0).map((si) => {
+                            const allocated = Math.max(1, Math.round(si.qty * pct));
+                            return (
+                              <div key={si.name} style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "rgba(255,255,255,0.35)" }}>
+                                <span>{si.name}</span>
+                                <span style={{ color: "rgba(255,255,255,0.5)", fontWeight: 500 }}>{allocated.toLocaleString()}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  }).filter(Boolean)}
+                </div>
+                <div style={{ fontSize: 8, color: "rgba(255,255,255,0.2)", marginTop: 8, textAlign: "center" }}>
+                  Allocation weighted by AI resource scores × affected population
+                </div>
+              </DashCard>
             </>
           ) : (
             <>
               {/* ── GLOBAL OVERVIEW ── */}
-              <DashCard title="Overview">
+              <DashCard title="General Overview">
                 <div style={{ fontSize: 11, lineHeight: 1.6, color: "rgba(255,255,255,0.7)" }}>
                   {plan.situation}
                 </div>
               </DashCard>
 
-              {/* Resource Allocation Overview */}
-              <DashCard title="Resource Allocation" maxHeight={220}>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {plan.dispatch.map((d, i) => (
-                    <div key={i}>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, marginBottom: 3 }}>
-                        <span style={{ color: "white", fontWeight: 600 }}>{d.cluster}</span>
-                        <span style={{ color: "rgba(255,255,255,0.5)" }}>{d.allocation_pct}%</span>
+              {/* Supply vs Demand — real FEMA inventory */}
+              <DashCard title={selectedSupplyCat ? `${CATEGORY_LABELS[selectedSupplyCat]} — Recommended Distribution` : "General — FEMA Supply vs Demand"}>
+                {selectedSupplyCat ? (() => {
+                  const sel = supplyDemand.find((s) => s.category === selectedSupplyCat);
+                  if (!sel) return null;
+                  const color = CATEGORY_COLORS[selectedSupplyCat];
+                  const totalDemand = sel.clusterDemand.reduce((s, c) => s + c.demand, 0);
+                  return (
+                    <div>
+                      <button
+                        onClick={() => setSelectedSupplyCat(null)}
+                        style={{
+                          background: "none", border: "none", cursor: "pointer", padding: 0,
+                          fontSize: 11, color: "rgba(255,255,255,0.4)", display: "flex", alignItems: "center", gap: 6, marginBottom: 10,
+                          transition: "color 0.15s",
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.color = "rgba(255,255,255,0.7)")}
+                        onMouseLeave={(e) => (e.currentTarget.style.color = "rgba(255,255,255,0.4)")}
+                      >
+                        ← Back
+                      </button>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "rgba(255,255,255,0.4)", marginBottom: 6 }}>
+                        <span>Total supply: {sel.supply.toLocaleString()}</span>
+                        <span>Total demand: ~{sel.demand.toLocaleString()}</span>
                       </div>
-                      <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
-                        <div style={{ height: "100%", borderRadius: 2, width: `${d.allocation_pct}%`, background: "#6c63ff", transition: "width 0.3s" }} />
+                      <div style={{ marginBottom: 8 }}>
+                        {sel.supplyItems.map((si) => (
+                          <div key={si.name} style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", marginBottom: 2, display: "flex", justifyContent: "space-between" }}>
+                            <span>{si.name}</span>
+                            <span>{si.qty.toLocaleString()} / ~{si.demand.toLocaleString()} needed</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {sel.clusterDemand.map((c) => {
+                          const pct = totalDemand > 0 ? c.demand / totalDemand : 0;
+                          const allocated = Math.max(1, Math.round(sel.supply * pct));
+                          const allocPct = Math.max(1, Math.round(pct * 100));
+                          return (
+                            <div key={c.cid}>
+                              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, marginBottom: 3 }}>
+                                <span style={{ color: "rgba(255,255,255,0.7)", fontWeight: 600 }}>{c.name}</span>
+                                <span style={{ color: "rgba(255,255,255,0.5)" }}>{allocated.toLocaleString()} ({allocPct}%)</span>
+                              </div>
+                              <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                                <div style={{ height: "100%", borderRadius: 2, width: `${allocPct}%`, background: color, opacity: 0.8, transition: "width 0.3s" }} />
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
-                  ))}
-                </div>
-              </DashCard>
-
-              {/* Supply vs Demand — real FEMA inventory */}
-              <DashCard title="FEMA Supply vs Demand">
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {supplyDemand.map(({ category, supply, supplyItems, demand, ratio }) => {
-                    const label = CATEGORY_LABELS[category];
-                    const color = CATEGORY_COLORS[category];
-                    const maxVal = Math.max(supply, demand, 1);
-                    const status = ratio >= 1 ? "Adequate" : ratio > 0.5 ? "Low" : "Inadequate";
-                    const statusColor = ratio >= 1 ? "#22c55e" : ratio > 0.5 ? "#f59e0b" : "#ef4444";
-                    return (
-                      <div key={category}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                          <span style={{ fontSize: 11, fontWeight: 600, color }}>{label}</span>
-                          <span style={{ fontSize: 9, fontWeight: 600, color: statusColor, textTransform: "uppercase", letterSpacing: "0.05em", padding: "2px 6px", borderRadius: 10, background: `${statusColor}18` }}>
-                            {status}
-                          </span>
-                        </div>
-                        {/* Supply bar */}
-                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
-                          <span style={{ fontSize: 8, color: "rgba(255,255,255,0.35)", width: 36, flexShrink: 0 }}>Supply</span>
-                          <div style={{ flex: 1, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
-                            <div style={{ height: "100%", borderRadius: 2, width: `${(supply / maxVal) * 100}%`, background: color, opacity: 0.8 }} />
+                  );
+                })() : (
+                  <div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      {supplyDemand.map(({ category, supply, supplyItems, demand, ratio }) => {
+                        const label = CATEGORY_LABELS[category];
+                        const color = CATEGORY_COLORS[category];
+                        const maxVal = Math.max(supply, demand, 1);
+                        const status = ratio >= 1 ? "Adequate" : ratio > 0.5 ? "Low" : "Inadequate";
+                        const statusColor = ratio >= 1 ? "#22c55e" : ratio > 0.5 ? "#f59e0b" : "#ef4444";
+                        const isInadequate = ratio < 0.5;
+                        return (
+                          <div
+                            key={category}
+                            onClick={() => setSelectedSupplyCat(category)}
+                            style={{
+                              padding: "8px 10px",
+                              borderRadius: 8,
+                              cursor: "pointer",
+                              transition: "background 0.15s",
+                              border: isInadequate ? `1px solid ${statusColor}4D` : "1px solid transparent",
+                              boxShadow: isInadequate ? `0 0 12px ${statusColor}26, inset 0 0 8px ${statusColor}0D` : "none",
+                              background: isInadequate ? `${statusColor}0A` : "transparent",
+                            }}
+                            onMouseEnter={(e) => { if (!isInadequate) e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
+                            onMouseLeave={(e) => { if (!isInadequate) e.currentTarget.style.background = "transparent"; }}
+                          >
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                              <span style={{ fontSize: 11, fontWeight: 600, color }}>{label}</span>
+                              <span style={{ fontSize: 9, fontWeight: 600, color: statusColor, textTransform: "uppercase", letterSpacing: "0.05em", padding: "2px 6px", borderRadius: 10, background: `${statusColor}18` }}>
+                                {status}
+                              </span>
+                            </div>
+                            {/* Supply bar */}
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                              <span style={{ fontSize: 8, color: "rgba(255,255,255,0.35)", width: 36, flexShrink: 0 }}>Supply</span>
+                              <div style={{ flex: 1, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                                <div style={{ height: "100%", borderRadius: 2, width: `${(supply / maxVal) * 100}%`, background: color, opacity: 0.8 }} />
+                              </div>
+                              <span style={{ fontSize: 9, color: "rgba(255,255,255,0.5)", width: 52, textAlign: "right", flexShrink: 0 }}>{supply.toLocaleString()}</span>
+                            </div>
+                            {/* Demand bar */}
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <span style={{ fontSize: 8, color: "rgba(255,255,255,0.35)", width: 36, flexShrink: 0 }}>Demand</span>
+                              <div style={{ flex: 1, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                                <div style={{ height: "100%", borderRadius: 2, width: `${(demand / maxVal) * 100}%`, background: "rgba(255,255,255,0.4)" }} />
+                              </div>
+                              <span style={{ fontSize: 9, color: "rgba(255,255,255,0.5)", width: 52, textAlign: "right", flexShrink: 0 }}>~{demand.toLocaleString()}</span>
+                            </div>
+                            {/* Per-item supply vs computed demand */}
+                            <div style={{ marginTop: 3, paddingLeft: 42 }}>
+                              {supplyItems.map((si: { name: string; qty: number; demand: number }) => (
+                                <div key={si.name} style={{ fontSize: 8, color: "rgba(255,255,255,0.25)", marginBottom: 1 }}>
+                                  {si.name}: {si.qty.toLocaleString()} supply / ~{si.demand.toLocaleString()} need
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                          <span style={{ fontSize: 9, color: "rgba(255,255,255,0.5)", width: 52, textAlign: "right", flexShrink: 0 }}>{supply.toLocaleString()}</span>
-                        </div>
-                        {/* Demand bar */}
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <span style={{ fontSize: 8, color: "rgba(255,255,255,0.35)", width: 36, flexShrink: 0 }}>Demand</span>
-                          <div style={{ flex: 1, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
-                            <div style={{ height: "100%", borderRadius: 2, width: `${(demand / maxVal) * 100}%`, background: "rgba(255,255,255,0.4)" }} />
-                          </div>
-                          <span style={{ fontSize: 9, color: "rgba(255,255,255,0.5)", width: 52, textAlign: "right", flexShrink: 0 }}>~{demand.toLocaleString()}</span>
-                        </div>
-                        {/* Inventory items */}
-                        <div style={{ marginTop: 3, paddingLeft: 42 }}>
-                          {supplyItems.map((si) => (
-                            <span key={si.name} style={{ fontSize: 8, color: "rgba(255,255,255,0.25)", marginRight: 8 }}>
-                              {si.name}: {si.qty.toLocaleString()}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                <div style={{ fontSize: 8, color: "rgba(255,255,255,0.2)", marginTop: 8, textAlign: "center" }}>
-                  Supply: FEMA warehouse inventory · Demand: computed from social media analysis
-                </div>
+                        );
+                      })}
+                    </div>
+                    <div style={{ fontSize: 8, color: "rgba(255,255,255,0.2)", marginTop: 8, textAlign: "center" }}>
+                      Supply: FEMA warehouse inventory · Demand: Sphere Standards × est. affected × {RELIEF_DAYS} days
+                    </div>
+                  </div>
+                )}
               </DashCard>
 
               <div style={{ fontSize: 9, color: "rgba(255,255,255,0.2)", textAlign: "center", padding: "4px 0" }}>
@@ -637,12 +758,6 @@ export default function AnalysisWidgets({
       (focusedSevCounts[p.severity_label] ?? 0) + 1;
   }
 
-  const focusedRankedNeeds = focusedAvg
-    ? [...CATEGORIES].sort(
-        (a, b) => (focusedAvg[b] ?? 0) - (focusedAvg[a] ?? 0),
-      )
-    : [];
-
   const sortedFocusedPosts = [...focusedPosts].sort((a, b) => {
     const W: Record<string, number> = {
       little_or_none: 0.1,
@@ -679,9 +794,9 @@ export default function AnalysisWidgets({
   const O3 = O2 + STAT_H + GAP; // row 3: Cluster list (fills to bottom)
 
   // ── Focused: consistent spacing ──
-  const F_HEADER_H = 78;
-  const F_AID_H = 195;
-  const F1 = 16; // header
+  const F_HEADER_H = 30;
+  const F_AID_H = 258;
+  const F1 = 16; // header (back + name inline)
   const F2 = F1 + F_HEADER_H + GAP; // stats row: Time | Affected | Severity
   const F3 = F2 + STAT_H + GAP; // aid needed
   const F4 = F3 + F_AID_H + GAP; // post list (fills to bottom)
@@ -864,75 +979,68 @@ export default function AnalysisWidgets({
 
       {/* ════════════ FOCUSED ════════════ */}
 
-      {/* Back + cluster name header */}
-      <div style={{ ...base(isFocused), left: LEFT, top: F1, width: W_FULL }}>
-        <div
+      {/* Back + cluster name header (inline, no card) */}
+      <div style={{
+        ...base(isFocused),
+        left: LEFT,
+        top: F1,
+        width: W_FULL,
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        height: F_HEADER_H,
+      }}>
+        <button
+          onClick={() => onFocusCluster(null)}
           style={{
-            ...card,
-            height: F_HEADER_H,
-            display: "flex",
-            flexDirection: "column",
-            justifyContent: "center",
+            ...glassStyle,
+            border: "1px solid rgba(255,255,255,0.12)",
+            cursor: "pointer",
+            padding: "4px 10px",
+            borderRadius: 8,
+            fontSize: 11,
+            color: "rgba(255,255,255,0.5)",
+            flexShrink: 0,
+            transition: "all 0.15s",
           }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = "#fff"; e.currentTarget.style.background = "rgba(255,255,255,0.08)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = "rgba(255,255,255,0.5)"; e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
         >
-          <button
-            onClick={() => onFocusCluster(null)}
-            style={{
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              padding: 0,
-              fontSize: 11,
-              color: "rgba(255,255,255,0.4)",
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              marginBottom: 8,
-              transition: "color 0.15s",
-            }}
-            onMouseEnter={(e) =>
-              (e.currentTarget.style.color = "rgba(255,255,255,0.7)")
-            }
-            onMouseLeave={(e) =>
-              (e.currentTarget.style.color = "rgba(255,255,255,0.4)")
-            }
-          >
-            ← All Clusters
-          </button>
-          {focusedClusterData && (
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div
+          ← Back
+        </button>
+        {focusedClusterData && (
+          <>
+            <div
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: "50%",
+                flexShrink: 0,
+                background: SEV_COLORS[focusedSev] ?? "#556",
+                boxShadow: `0 0 6px ${SEV_COLORS[focusedSev] ?? "#556"}`,
+              }}
+            />
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>
+              {focusedClusterData.name}
+            </span>
+            {focusedSev && (
+              <span
                 style={{
-                  width: 10,
-                  height: 10,
-                  borderRadius: "50%",
-                  flexShrink: 0,
-                  background: SEV_COLORS[focusedSev] ?? "#556",
-                  boxShadow: `0 0 8px ${SEV_COLORS[focusedSev] ?? "#556"}`,
+                  marginLeft: "auto",
+                  fontSize: 9,
+                  fontWeight: 600,
+                  textTransform: "uppercase",
+                  padding: "2px 7px",
+                  borderRadius: 20,
+                  background: `${SEV_COLORS[focusedSev]}18`,
+                  color: SEV_COLORS[focusedSev],
                 }}
-              />
-              <span style={{ fontSize: 15, fontWeight: 700 }}>
-                {focusedClusterData.name}
+              >
+                {SEV_LABELS[focusedSev]}
               </span>
-              {focusedSev && (
-                <span
-                  style={{
-                    marginLeft: "auto",
-                    fontSize: 9,
-                    fontWeight: 600,
-                    textTransform: "uppercase",
-                    padding: "3px 8px",
-                    borderRadius: 20,
-                    background: `${SEV_COLORS[focusedSev]}18`,
-                    color: SEV_COLORS[focusedSev],
-                  }}
-                >
-                  {SEV_LABELS[focusedSev]}
-                </span>
-              )}
-            </div>
-          )}
-        </div>
+            )}
+          </>
+        )}
       </div>
 
       {/* Time elapsed */}
@@ -973,7 +1081,7 @@ export default function AnalysisWidgets({
         }}
       />
 
-      {/* Aid needed (ranked) — its own widget */}
+      {/* Aid needed (radar chart) — cluster-specific */}
       <div style={{ ...base(isFocused), left: LEFT, top: F3, width: W_FULL }}>
         {focusedAvg && (
           <div style={card}>
@@ -983,85 +1091,76 @@ export default function AnalysisWidgets({
                 color: "rgba(255,255,255,0.3)",
                 textTransform: "uppercase",
                 letterSpacing: "0.15em",
-                marginBottom: 12,
+                marginBottom: 4,
               }}
             >
               Aid Needed
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {focusedRankedNeeds.map((cat, rank) => {
-                const pct = Math.round(
-                  Math.min(Math.max(focusedAvg[cat] ?? 0, 0), 1) * 100,
-                );
+            {(() => {
+              const rawScores = CATEGORIES.map((cat) => Math.min(Math.max(focusedAvg[cat] ?? 0, 0), 1));
+              const maxScore = Math.max(...rawScores, 0.01);
+              const radarData = CATEGORIES.map((cat, i) => {
+                const pct = Math.round((rawScores[i] / maxScore) * 100);
+                return {
+                  category: CATEGORY_LABELS[cat],
+                  catKey: cat,
+                  score: pct,
+                  rawPct: Math.round(rawScores[i] * 100),
+                  fullMark: 100,
+                };
+              });
+
+              const AidTooltip = ({ active, payload }: { active?: boolean; payload?: Array<{ payload: typeof radarData[number] }> }) => {
+                if (!active || !payload?.[0]) return null;
+                const d = payload[0].payload;
+                const color = CATEGORY_COLORS[d.catKey as Category];
                 return (
-                  <div
-                    key={cat}
-                    style={{ display: "flex", alignItems: "center", gap: 10 }}
-                  >
-                    <span
-                      style={{
-                        width: 18,
-                        height: 18,
-                        borderRadius: "50%",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: 10,
-                        fontWeight: 700,
-                        flexShrink: 0,
-                        background:
-                          rank === 0
-                            ? "rgba(255,255,255,0.12)"
-                            : "rgba(255,255,255,0.04)",
-                        color: rank === 0 ? "#fff" : "rgba(255,255,255,0.4)",
-                      }}
-                    >
-                      {rank + 1}
-                    </span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          marginBottom: 3,
-                        }}
-                      >
-                        <span
-                          style={{
-                            fontSize: 11,
-                            color:
-                              rank === 0 ? "#fff" : "rgba(255,255,255,0.5)",
-                          }}
-                        >
-                          {CATEGORY_LABELS[cat]}
-                        </span>
-                        <span style={{ fontSize: 11, fontWeight: 600 }}>
-                          {pct}%
-                        </span>
-                      </div>
-                      <div
-                        style={{
-                          height: 3,
-                          borderRadius: 2,
-                          background: "rgba(255,255,255,0.06)",
-                          overflow: "hidden",
-                        }}
-                      >
-                        <div
-                          style={{
-                            height: "100%",
-                            borderRadius: 2,
-                            width: `${pct}%`,
-                            background: CATEGORY_COLORS[cat],
-                            transition: "width 0.5s",
-                          }}
-                        />
-                      </div>
-                    </div>
+                  <div style={{
+                    background: "rgba(16,18,27,0.95)",
+                    border: "1px solid rgba(255,255,255,0.15)",
+                    borderRadius: 6,
+                    padding: "4px 10px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                  }}>
+                    <div style={{ width: 6, height: 6, borderRadius: 2, background: color }} />
+                    <span style={{ fontSize: 10, fontWeight: 600, color: "#fff" }}>{d.category}</span>
+                    <span style={{ fontSize: 10, color: "rgba(255,255,255,0.5)" }}>{d.rawPct}%</span>
                   </div>
                 );
-              })}
-            </div>
+              };
+
+              return (
+                <div style={{ width: "100%", height: 210 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RadarChart cx="50%" cy="50%" outerRadius="75%" data={radarData}>
+                      <PolarGrid stroke="rgba(255,255,255,0.1)" />
+                      <PolarAngleAxis
+                        dataKey="category"
+                        tick={{ fill: "rgba(255,255,255,0.7)", fontSize: 9, fontWeight: 600 }}
+                      />
+                      <PolarRadiusAxis
+                        angle={90}
+                        domain={[0, 100]}
+                        tick={false}
+                        axisLine={false}
+                      />
+                      <Tooltip content={<AidTooltip />} />
+                      <Radar
+                        dataKey="score"
+                        stroke="#6c63ff"
+                        fill="#6c63ff"
+                        fillOpacity={0.3}
+                        strokeWidth={2}
+                        dot={{ r: 3, fill: "#6c63ff", stroke: "#fff", strokeWidth: 1 }}
+                        activeDot={{ r: 5, fill: "#6c63ff", stroke: "#fff", strokeWidth: 2 }}
+                      />
+                    </RadarChart>
+                  </ResponsiveContainer>
+                </div>
+              );
+            })()}
           </div>
         )}
       </div>
@@ -1181,11 +1280,11 @@ export default function AnalysisWidgets({
                           borderRadius: 3,
                           fontWeight: 600,
                           background: post.informative
-                            ? "rgba(34,197,94,0.15)"
+                            ? "rgba(255,255,255,0.10)"
                             : "rgba(255,255,255,0.06)",
                           color: post.informative
-                            ? "#22c55e"
-                            : "rgba(255,255,255,0.3)",
+                            ? "rgba(255,255,255,0.85)"
+                            : "rgba(255,255,255,0.45)",
                           textTransform: "uppercase",
                           letterSpacing: 0.3,
                         }}

@@ -101,6 +101,7 @@ DISASTER_CONFIGS = {
         "image_dir": "hurricane_irma",
         "map_center": [25.76, -80.19],
         "map_zoom": 7,
+        "state": "Florida",
         "eps": 0.15,
         "cluster_centers": [
             (25.7617, -80.1918, "Miami",           470000, 0.30),
@@ -248,6 +249,7 @@ def run_dbscan(config, min_samples=3):
         name, population = nearest_city(mean_lat, mean_lon, config)
         CLUSTER_META[str(cid)] = {
             "name": name,
+            "state": config.get("state", ""),
             "centroid": [mean_lat, mean_lon],
             "count": len(members),
             "population": population,

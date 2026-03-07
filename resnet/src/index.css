@@ -1,5 +1,5 @@
 @import "tailwindcss";
-@import url('https://fonts.googleapis.com/css2?family=Alegreya:ital,wght@0,400..900;1,400..900&family=Lexend:wght@100..900&family=Manrope:wght@200..800&family=Outfit:wght@100..900&family=UnifrakturMaguntia&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Alegreya:ital,wght@0,400..900;1,400..900&family=Lexend:wght@100..900&family=Manrope:wght@200..800&family=Outfit:wght@100..900&family=Share+Tech&family=UnifrakturMaguntia&display=swap');
 
 @theme {
   --font-primary: "Outfit", serif;

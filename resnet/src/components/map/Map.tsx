@@ -329,7 +329,8 @@ const Map = () => {
       })
       .catch(() => setLlmSummary(null))
       .finally(() => setSummaryLoading(false));
-  }, [phase, analyzedPosts, clusters]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, analyzedPosts.length, Object.keys(clusters).length]);
 
   const startDrip = () => {
     dripIndexRef.current = 0;
@@ -421,14 +422,17 @@ const Map = () => {
               clusterSeverityRef.current[cid] = [];
             clusterSeverityRef.current[cid].push(w);
 
-            const arr = clusterSeverityRef.current[cid];
-            const avg = arr.reduce((a, b) => a + b, 0) / arr.length;
-            const severity =
-              avg < 0.2 ? "little_or_none" : avg < 0.3 ? "mild" : "severe";
-
-            const updated = { ...clustersRef.current };
-            if (updated[cid]) {
-              updated[cid] = { ...updated[cid], combined_severity: severity };
+            // Batch cluster severity updates every 10 posts to reduce re-renders
+            if (data.current % 10 === 0 || data.current >= data.total) {
+              const updated = { ...clustersRef.current };
+              for (const [sid, arr] of Object.entries(clusterSeverityRef.current)) {
+                const avg = arr.reduce((a, b) => a + b, 0) / arr.length;
+                const severity =
+                  avg < 0.2 ? "little_or_none" : avg < 0.3 ? "mild" : "severe";
+                if (updated[sid]) {
+                  updated[sid] = { ...updated[sid], combined_severity: severity };
+                }
+              }
               clustersRef.current = updated;
               setClusters(updated);
             }
@@ -525,7 +529,7 @@ const Map = () => {
         setFlyZoom(mapZoom);
       }
     },
-    [clusters, mapCenter],
+    [clusters, mapCenter, mapZoom],
   );
 
   const handlePostSelect = useCallback((post: Post) => {
@@ -561,13 +565,14 @@ const Map = () => {
         : 0;
 
   const progressColor =
-    phase === "animating" || phase === "done" ? "#22c55e" : "#6c63ff";
+    phase === "animating" || phase === "done" ? "rgba(255,255,255,0.6)" : "#6c63ff";
 
   return (
     <div style={{ height: "100vh", width: "100%", position: "relative" }}>
       <MapContainer
         center={mapCenter}
         zoom={mapZoom}
+        zoomControl={false}
         style={{ height: "100%", width: "100%" }}
       >
         <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}" />
@@ -626,6 +631,49 @@ const Map = () => {
         <MapRecenter center={mapCenter} zoom={mapZoom} />
       </MapContainer>
 
+      {/* ResNet branding — only in general view */}
+      {!focusedCluster && (
+        <div
+          style={{
+            position: "absolute",
+            top: 18,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 1001,
+            pointerEvents: "none",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+          }}
+        >
+          <span
+            style={{
+              fontSize: 30,
+              fontWeight: 400,
+              color: "white",
+              letterSpacing: "0.02em",
+              fontFamily: '"Share Tech", sans-serif',
+              textShadow: "0 2px 16px rgba(0,0,0,0.5)",
+            }}
+          >
+            Res<span style={{ color: "#6c63ff" }}>Net</span>
+          </span>
+          <span
+            style={{
+              fontSize: 12,
+              fontWeight: 400,
+              color: "rgba(255,255,255,0.35)",
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              fontFamily: '"Share Tech", sans-serif',
+              textShadow: "0 1px 8px rgba(0,0,0,0.4)",
+            }}
+          >
+            Post-Crisis Resource Allocation
+          </span>
+        </div>
+      )}
+
       {/* Analysis widgets overlay — sits above the map */}
       <div
         style={{
@@ -655,6 +703,32 @@ const Map = () => {
             dispatchPlan={llmSummary}
             summaryLoading={summaryLoading}
           />
+          {/* Floating cluster name banner */}
+          {focusedCluster && clusters[focusedCluster] && (
+            <div
+              style={{
+                position: "absolute",
+                top: 18,
+                left: "50%",
+                transform: "translateX(-50%)",
+                zIndex: 1001,
+                pointerEvents: "none",
+                fontSize: 28,
+                fontWeight: 700,
+                color: "white",
+                textShadow: "0 2px 16px rgba(0,0,0,0.6), 0 0 40px rgba(0,0,0,0.3)",
+                letterSpacing: "-0.02em",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {clusters[focusedCluster].name}
+              {clusters[focusedCluster].state && (
+                <span style={{ fontWeight: 400, opacity: 0.6, fontSize: 20, marginLeft: 8 }}>
+                  {clusters[focusedCluster].state}
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -685,8 +759,10 @@ const Map = () => {
               disabled={disasterLoading}
               style={{
                 flex: 1,
-                background: "#1e2130",
-                border: "1px solid #2a2d3a",
+                background: "rgba(255,255,255,0.04)",
+                backdropFilter: "blur(12px)",
+                WebkitBackdropFilter: "blur(12px)",
+                border: "1px solid rgba(255,255,255,0.1)",
                 borderRadius: 6,
                 color: "white",
                 padding: "6px 8px",
@@ -713,8 +789,10 @@ const Map = () => {
               }
               disabled={disasterLoading}
               style={{
-                background: "#1e2130",
-                border: "1px solid #2a2d3a",
+                background: "rgba(255,255,255,0.04)",
+                backdropFilter: "blur(12px)",
+                WebkitBackdropFilter: "blur(12px)",
+                border: "1px solid rgba(255,255,255,0.1)",
                 borderRadius: 6,
                 color: "white",
                 padding: "6px 8px",
@@ -778,7 +856,10 @@ const Map = () => {
                   gap: 6,
                   padding: "6px 8px",
                   borderRadius: 6,
-                  background: "#1e2130",
+                  background: isDone ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.03)",
+                  border: `1px solid ${isDone ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.06)"}`,
+                  backdropFilter: "blur(12px)",
+                  WebkitBackdropFilter: "blur(12px)",
                 }}
               >
                 <div
@@ -792,9 +873,9 @@ const Map = () => {
                     fontSize: 11,
                     fontWeight: 700,
                     flexShrink: 0,
-                    border: `2px solid ${isDone ? "#2ecc71" : isActive ? "#6c63ff" : "#3a3d4a"}`,
+                    border: `2px solid ${isDone ? "rgba(255,255,255,0.4)" : isActive ? "#6c63ff" : "rgba(255,255,255,0.12)"}`,
                     color: isDone ? "#fff" : isActive ? "#6c63ff" : "#555",
-                    background: isDone ? "#2ecc71" : "transparent",
+                    background: isDone ? "rgba(255,255,255,0.15)" : "transparent",
                   }}
                 >
                   {isDone ? "✓" : stepNum}
@@ -818,7 +899,7 @@ const Map = () => {
           style={{
             width: "100%",
             height: 6,
-            background: "#262938",
+            background: "rgba(255,255,255,0.06)",
             borderRadius: 3,
             overflow: "hidden",
           }}

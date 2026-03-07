@@ -1,5 +1,6 @@
 export interface Cluster {
     name: string;
+    state?: string;
     centroid: [number, number];
     count: number;
     population?: number;
