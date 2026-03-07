@@ -239,7 +239,6 @@ function AIDashboard({
   plan,
   summaryLoading,
   totalPosts,
-  globalSevCounts,
   focusedCluster,
   clusters,
   postsByCluster,
@@ -249,7 +248,6 @@ function AIDashboard({
   plan: DispatchPlan | null;
   summaryLoading: boolean;
   totalPosts: number;
-  globalSevCounts: Record<string, number>;
   focusedCluster: string | null;
   clusters: Record<string, Cluster>;
   postsByCluster: Record<string, AnalyzedPost[]>;
@@ -434,23 +432,6 @@ function AIDashboard({
               <DashCard title="Overview">
                 <div style={{ fontSize: 11, lineHeight: 1.6, color: "rgba(255,255,255,0.7)" }}>
                   {plan.situation}
-                </div>
-              </DashCard>
-
-              {/* Severity Breakdown */}
-              <DashCard title="Severity Breakdown">
-                <div style={{ display: "flex", gap: 6 }}>
-                  {(["severe", "mild", "little_or_none"] as const).map((sev) => {
-                    const count = globalSevCounts[sev] ?? 0;
-                    const pct = totalPosts > 0 ? Math.round((count / totalPosts) * 100) : 0;
-                    return (
-                      <div key={sev} style={{ flex: 1, textAlign: "center", padding: "6px 4px", borderRadius: 6, background: `${SEV_COLORS[sev]}10` }}>
-                        <div style={{ fontSize: 16, fontWeight: 700, color: SEV_COLORS[sev] }}>{count}</div>
-                        <div style={{ fontSize: 8, color: SEV_COLORS[sev], opacity: 0.7 }}>{SEV_LABELS[sev]}</div>
-                        <div style={{ fontSize: 8, color: "rgba(255,255,255,0.3)", marginTop: 2 }}>{pct}%</div>
-                      </div>
-                    );
-                  })}
                 </div>
               </DashCard>
 
@@ -1253,7 +1234,6 @@ export default function AnalysisWidgets({
         plan={dispatchPlan}
         summaryLoading={summaryLoading}
         totalPosts={totalPosts}
-        globalSevCounts={globalSevCounts}
         focusedCluster={focusedCluster}
         clusters={clusters}
         postsByCluster={postsByCluster}
