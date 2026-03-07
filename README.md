@@ -182,19 +182,23 @@ $$A_k = P_k \cdot \frac{n_k}{N} \cdot \alpha$$
 
 where $P_k$ is the population of cluster $k$'s nearest city, $n_k$ is the number of posts in cluster $k$, $N$ is the total number of posts, and $\alpha = 0.01$ is a scaling factor representing the estimated fraction of a city's population affected per unit of social media signal density. The global estimate is $\sum_k A_k$.
 
-**Priority Level:**
+**Priority Level & Deployment Timeline:**
 
-Priority is assigned based on a combined score $U_k = 0.6 \cdot S_k + 0.4 \cdot \max_c(\hat{y}_{kc})$, where $S_k$ is the cluster's weighted severity (severe=1.0, mild=0.3, low=0.1) and $\max_c(\hat{y}_{kc})$ is the highest resource score. Thresholds: CRITICAL ($U_k \geq 0.5$), HIGH ($0.3 \leq U_k < 0.5$), MEDIUM ($0.15 \leq U_k < 0.3$), LOW ($U_k < 0.15$).
+Priority and timeline are determined directly by the cluster's combined severity label:
+
+| Severity | Priority | Timeline |
+|----------|----------|----------|
+| Severe | CRITICAL | immediate |
+| Mild | HIGH | within 6h |
+| Little or None | LOW | within 24h |
+
+Clusters are sorted by severity first, then by estimated affected population descending.
 
 **Resource Allocation Proportion:**
 
-$$\text{alloc}_k = \frac{A_k \cdot U_k}{\sum_j A_j \cdot U_j}$$
+$$\text{alloc}_k = \frac{A_k}{\sum_j A_j}$$
 
-Each cluster receives a share of available resources proportional to its demand weight (estimated affected population $\times$ severity score).
-
-**Deployment Timeline:**
-
-$$\text{timeline}_k = \begin{cases} \text{immediate} & U_k \geq 0.5 \\ \text{within 6h} & 0.3 \leq U_k < 0.5 \\ \text{within 24h} & 0.15 \leq U_k < 0.3 \\ \text{within 48h} & U_k < 0.15 \end{cases}$$
+Each cluster receives a share of available resources proportional to its estimated affected population.
 
 **Team Count (default):**
 

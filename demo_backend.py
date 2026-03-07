@@ -561,56 +561,48 @@ def compute_dispatch(cluster_data):
     Deterministically compute priority, timeline, resource allocation,
     and concrete supply/personnel quantities from cluster scores.
 
-    urgency = 0.6 * weighted_severity + 0.4 * max(resource_scores)
-    allocation = demand_weight / sum(demand_weights)
-    demand_weight = estimated_affected * urgency
+    Priority & timeline are determined directly by combined severity.
+    Allocation is proportional to estimated affected population.
     team_count = max(1, est_affected / TEAM_RATIO)
     supply_qty = est_affected * per_item_ratio
     """
-    SEVERITY_WEIGHTS = {"severe": 1.0, "mild": 0.3, "little_or_none": 0.1}
+    SEVERITY_LEVEL = {
+        "severe": ("CRITICAL", "immediate"),
+        "mild": ("HIGH", "within 6h"),
+        "little_or_none": ("LOW", "within 24h"),
+    }
+    SEVERITY_ORDER = {"severe": 0, "mild": 1, "little_or_none": 2}
 
     enriched = []
     for c in cluster_data:
         scores = c.get("resourceScores", {})
         sev = c.get("severity", "little_or_none")
-        sev_val = SEVERITY_WEIGHTS.get(sev, 0.1)
-        max_score = max(scores.values()) if scores else 0
-        urgency = 0.6 * sev_val + 0.4 * max_score
         pop = c.get("population", 0)
         post_count = c.get("postCount", 0)
         est_affected = pop * 0.01 if pop else post_count * 10
-        demand_weight = est_affected * urgency
 
         # Top resource need
         top_cat = max(scores, key=scores.get) if scores else "infrastructure"
 
         enriched.append({
             **c,
-            "urgency": urgency,
-            "demand_weight": demand_weight,
+            "severity": sev,
             "top_category": top_cat,
             "est_affected": est_affected,
         })
 
-    # Sort by urgency descending
-    enriched.sort(key=lambda x: x["urgency"], reverse=True)
+    # Sort by severity (severe first), then by est_affected descending
+    enriched.sort(key=lambda x: (SEVERITY_ORDER.get(x["severity"], 9), -x["est_affected"]))
 
-    total_demand = sum(e["demand_weight"] for e in enriched) or 1
+    total_affected = sum(e["est_affected"] for e in enriched) or 1
 
     priorities = []
     dispatch = []
     for e in enriched:
-        u = e["urgency"]
-        if u >= 0.5:
-            level, timeline = "CRITICAL", "immediate"
-        elif u >= 0.3:
-            level, timeline = "HIGH", "within 6h"
-        elif u >= 0.15:
-            level, timeline = "MEDIUM", "within 24h"
-        else:
-            level, timeline = "LOW", "within 48h"
+        sev = e["severity"]
+        level, timeline = SEVERITY_LEVEL.get(sev, ("LOW", "within 24h"))
 
-        alloc_pct = round(e["demand_weight"] / total_demand * 100)
+        alloc_pct = round(e["est_affected"] / total_affected * 100)
         top = e["top_category"]
         affected = e["est_affected"]
 
