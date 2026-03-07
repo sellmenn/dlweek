@@ -421,116 +421,8 @@ function AIDashboard({
           </div>
         ) : plan ? (
           <>
-            {/* Resource Inventory */}
-            <DashCard title="Resource Inventory" maxHeight={300}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {/* Teams */}
-                <div>
-                  <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.1em" }}>Teams</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                    {TEAM_TYPES.map(([key, label]) => (
-                      <div key={key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                        <span style={{ fontSize: 10, color: "rgba(255,255,255,0.5)" }}>{label}</span>
-                        <input
-                          type="number" min={0}
-                          placeholder={String(teamDemand[key] ?? 0)}
-                          value={teamInventory[key] ?? ""}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            setTeamInventory((prev) => ({ ...prev, [key]: v ? Math.max(0, parseInt(v, 10) || 0) : null }));
-                          }}
-                          style={inputStyle}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                {/* Supplies by category */}
-                {SUPPLY_SPECS.map((spec) => (
-                  <div key={spec.category}>
-                    <div style={{ fontSize: 9, color: CATEGORY_COLORS[spec.category], marginBottom: 6, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em" }}>{spec.label}</div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                      {spec.items.map((item) => (
-                        <div key={item.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.5)" }}>{item.name}</span>
-                          <input
-                            type="number" min={0}
-                            placeholder="—"
-                            value={supplyInventory[item.name] ?? ""}
-                            onChange={(e) => {
-                              const v = e.target.value;
-                              setSupplyInventory((prev) => ({ ...prev, [item.name]: v ? Math.max(0, parseInt(v, 10) || 0) : null }));
-                            }}
-                            style={inputStyle}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-                <div style={{ fontSize: 9, color: "rgba(255,255,255,0.25)" }}>
-                  Set available quantities; leave blank for unlimited
-                </div>
-              </div>
-            </DashCard>
-
-            {/* Resource Overview */}
-            <DashCard title="Resource Overview" maxHeight={320}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {/* Teams overview */}
-                <div>
-                  <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.1em" }}>Teams</div>
-                  {TEAM_TYPES.map(([key, label]) => {
-                    const demand = teamDemand[key] ?? 0;
-                    if (demand === 0) return null;
-                    const available = teamInventory[key];
-                    const shortage = available != null && demand > available;
-                    const pct = available != null && available > 0 ? Math.min(100, (demand / available) * 100) : 100;
-                    return (
-                      <div key={key} style={{ marginBottom: 4 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "rgba(255,255,255,0.5)", marginBottom: 2 }}>
-                          <span>{label}</span>
-                          <span style={{ color: shortage ? "#ef4444" : available != null ? "#22c55e" : "rgba(255,255,255,0.4)" }}>
-                            {demand}{available != null ? ` / ${available}` : ""}
-                          </span>
-                        </div>
-                        <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
-                          <div style={{ height: "100%", borderRadius: 2, width: `${available != null ? pct : 100}%`, background: shortage ? "#ef4444" : available != null ? "#22c55e" : "rgba(255,255,255,0.15)", transition: "width 0.3s" }} />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                {/* Supplies overview */}
-                {SUPPLY_SPECS.map((spec) => (
-                  <div key={spec.category}>
-                    <div style={{ fontSize: 9, color: CATEGORY_COLORS[spec.category], marginBottom: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em" }}>{spec.label}</div>
-                    {spec.items.map((item) => {
-                      const demand = supplyDemand[item.name] ?? 0;
-                      const available = supplyInventory[item.name];
-                      const shortage = available != null && demand > available;
-                      const pct = available != null && available > 0 ? Math.min(100, (demand / available) * 100) : 100;
-                      return (
-                        <div key={item.name} style={{ marginBottom: 4 }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "rgba(255,255,255,0.5)", marginBottom: 2 }}>
-                            <span>{item.name}</span>
-                            <span style={{ color: shortage ? "#ef4444" : available != null ? "#22c55e" : "rgba(255,255,255,0.4)" }}>
-                              {demand.toLocaleString()}{available != null ? ` / ${available.toLocaleString()}` : ""}
-                            </span>
-                          </div>
-                          <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
-                            <div style={{ height: "100%", borderRadius: 2, width: `${available != null ? pct : 100}%`, background: shortage ? "#ef4444" : available != null ? "#22c55e" : "rgba(255,255,255,0.15)", transition: "width 0.3s" }} />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ))}
-              </div>
-            </DashCard>
-
             {/* Situation Overview */}
-            <DashCard title="Situation Overview" maxHeight={140}>
+            <DashCard title="Situation Overview" maxHeight={120}>
               <div style={{ fontSize: 11, lineHeight: 1.6, color: "rgba(255,255,255,0.7)" }}>
                 {plan.situation}
               </div>
@@ -653,6 +545,114 @@ function AIDashboard({
                     </div>
                   </div>
                 ))}
+              </div>
+            </DashCard>
+
+            {/* Resource Overview */}
+            <DashCard title="Resource Overview" maxHeight={320}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {/* Teams overview */}
+                <div>
+                  <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.1em" }}>Teams</div>
+                  {TEAM_TYPES.map(([key, label]) => {
+                    const demand = teamDemand[key] ?? 0;
+                    if (demand === 0) return null;
+                    const available = teamInventory[key];
+                    const shortage = available != null && demand > available;
+                    const pct = available != null && available > 0 ? Math.min(100, (demand / available) * 100) : 100;
+                    return (
+                      <div key={key} style={{ marginBottom: 4 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "rgba(255,255,255,0.5)", marginBottom: 2 }}>
+                          <span>{label}</span>
+                          <span style={{ color: shortage ? "#ef4444" : available != null ? "#22c55e" : "rgba(255,255,255,0.4)" }}>
+                            {demand}{available != null ? ` / ${available}` : ""}
+                          </span>
+                        </div>
+                        <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                          <div style={{ height: "100%", borderRadius: 2, width: `${available != null ? pct : 100}%`, background: shortage ? "#ef4444" : available != null ? "#22c55e" : "rgba(255,255,255,0.15)", transition: "width 0.3s" }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* Supplies overview */}
+                {SUPPLY_SPECS.map((spec) => (
+                  <div key={spec.category}>
+                    <div style={{ fontSize: 9, color: CATEGORY_COLORS[spec.category], marginBottom: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em" }}>{spec.label}</div>
+                    {spec.items.map((item) => {
+                      const demand = supplyDemand[item.name] ?? 0;
+                      const available = supplyInventory[item.name];
+                      const shortage = available != null && demand > available;
+                      const pct = available != null && available > 0 ? Math.min(100, (demand / available) * 100) : 100;
+                      return (
+                        <div key={item.name} style={{ marginBottom: 4 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "rgba(255,255,255,0.5)", marginBottom: 2 }}>
+                            <span>{item.name}</span>
+                            <span style={{ color: shortage ? "#ef4444" : available != null ? "#22c55e" : "rgba(255,255,255,0.4)" }}>
+                              {demand.toLocaleString()}{available != null ? ` / ${available.toLocaleString()}` : ""}
+                            </span>
+                          </div>
+                          <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                            <div style={{ height: "100%", borderRadius: 2, width: `${available != null ? pct : 100}%`, background: shortage ? "#ef4444" : available != null ? "#22c55e" : "rgba(255,255,255,0.15)", transition: "width 0.3s" }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            </DashCard>
+
+            {/* Resource Inventory */}
+            <DashCard title="Resource Inventory" maxHeight={300}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {/* Teams */}
+                <div>
+                  <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.1em" }}>Teams</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    {TEAM_TYPES.map(([key, label]) => (
+                      <div key={key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                        <span style={{ fontSize: 10, color: "rgba(255,255,255,0.5)" }}>{label}</span>
+                        <input
+                          type="number" min={0}
+                          placeholder={String(teamDemand[key] ?? 0)}
+                          value={teamInventory[key] ?? ""}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setTeamInventory((prev) => ({ ...prev, [key]: v ? Math.max(0, parseInt(v, 10) || 0) : null }));
+                          }}
+                          style={inputStyle}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {/* Supplies by category */}
+                {SUPPLY_SPECS.map((spec) => (
+                  <div key={spec.category}>
+                    <div style={{ fontSize: 9, color: CATEGORY_COLORS[spec.category], marginBottom: 6, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em" }}>{spec.label}</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      {spec.items.map((item) => (
+                        <div key={item.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.5)" }}>{item.name}</span>
+                          <input
+                            type="number" min={0}
+                            placeholder="—"
+                            value={supplyInventory[item.name] ?? ""}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setSupplyInventory((prev) => ({ ...prev, [item.name]: v ? Math.max(0, parseInt(v, 10) || 0) : null }));
+                            }}
+                            style={inputStyle}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                <div style={{ fontSize: 9, color: "rgba(255,255,255,0.25)" }}>
+                  Set available quantities; leave blank for unlimited
+                </div>
               </div>
             </DashCard>
           </>
