@@ -606,34 +606,52 @@ def compute_dispatch(cluster_data):
 
 @app.route("/api/summarize", methods=["POST"])
 def api_summarize():
-    """Use OpenAI LLM to summarize crisis analysis data and provide actionable items."""
-    from dotenv import load_dotenv
-    load_dotenv()
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        return jsonify({"summary": "OpenAI API key not configured."}), 500
-
-    import openai
-
+    """Compute dispatch plan deterministically; use LLM only for situation overview."""
     data = __import__("flask").request.get_json(force=True)
+    cluster_data = data.get("clusters", [])
 
-    disaster_label = DISASTER_CONFIGS[ACTIVE_DISASTER]["label"]
-    prompt = f"""You are a crisis response analyst. Based on the following post-disaster analysis data from {disaster_label}, provide a concise situation report with actionable recommendations.
+    priorities, dispatch = compute_dispatch(cluster_data)
+
+    # Try to get LLM situation overview + dispatch recommendation
+    situation = None
+    recommendation = ""
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if api_key:
+            import openai
+            disaster_label = DISASTER_CONFIGS[ACTIVE_DISASTER]["label"]
+            prompt = f"""You are a crisis response dispatch coordinator. Based on the following post-disaster data from {disaster_label}, produce TWO things separated by "---":
+
+1. A 2-3 sentence situation overview. Be specific about which areas are worst hit and what resource needs dominate.
+
+2. Specific dispatch recommendations: for each cluster, recommend exact personnel counts and supply quantities to deploy, based on its allocation percentage and estimated affected population. Be concrete (e.g. "Deploy 3 medical teams with 500 trauma kits to San Juan" not "send medical help").
 
 Data:
 - Total posts analyzed: {data.get('totalPosts', 0)}
-- Clusters (sorted by urgency): {json.dumps(priorities)}
+- Computed dispatch plan: {json.dumps(dispatch)}
+- Priority ranking: {json.dumps(priorities)}
 
-Return ONLY the 2-3 sentence overview, no headers or formatting."""
+Format:
+<situation overview, 2-3 sentences>
+---
+<dispatch recommendations, one bullet per cluster using "- " prefix>"""
 
             client = openai.OpenAI(api_key=api_key)
             resp = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=200,
+                max_tokens=600,
                 temperature=0.3,
             )
-            situation = resp.choices[0].message.content.strip()
+            raw = resp.choices[0].message.content.strip()
+            if "---" in raw:
+                parts = raw.split("---", 1)
+                situation = parts[0].strip()
+                recommendation = parts[1].strip()
+            else:
+                situation = raw
     except Exception:
         pass
 
@@ -648,6 +666,7 @@ Return ONLY the 2-3 sentence overview, no headers or formatting."""
             "situation": situation,
             "priorities": priorities,
             "dispatch": dispatch,
+            "recommendation": recommendation,
         }
     })
 

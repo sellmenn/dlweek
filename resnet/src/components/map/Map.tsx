@@ -29,6 +29,7 @@ export interface DispatchPlan {
   situation: string;
   priorities: { cluster: string; level: string; urgency: number; top_need: string }[];
   dispatch: { cluster: string; teams: string; supplies: string; timeline: string; allocation_pct: number }[];
+  recommendation: string;
 }
 
 /** Convex hull via Graham scan — returns the true edge points in order. */

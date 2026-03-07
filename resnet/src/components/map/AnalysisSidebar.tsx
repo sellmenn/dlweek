@@ -220,10 +220,12 @@ const TIMELINE_COLORS: Record<string, string> = {
 function DashCard({
   title,
   children,
+  maxHeight,
   style: extra,
 }: {
   title: string;
   children: React.ReactNode;
+  maxHeight?: number;
   style?: React.CSSProperties;
 }) {
   return (
@@ -236,11 +238,12 @@ function DashCard({
           textTransform: "uppercase",
           letterSpacing: "0.15em",
           borderBottom: "1px solid rgba(255,255,255,0.06)",
+          flexShrink: 0,
         }}
       >
         {title}
       </div>
-      <div style={{ padding: "8px 14px 12px" }}>{children}</div>
+      <div style={{ padding: "8px 14px 12px", maxHeight: maxHeight, overflowY: maxHeight ? "auto" : undefined }}>{children}</div>
     </div>
   );
 }
@@ -353,7 +356,7 @@ function AIDashboard({
             </DashCard>
 
             {/* Priority Ranking */}
-            <DashCard title="Priority Ranking">
+            <DashCard title="Priority Ranking" maxHeight={180}>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {plan.priorities.map((p, i) => (
                   <div
@@ -400,7 +403,7 @@ function AIDashboard({
             </DashCard>
 
             {/* Dispatch Orders */}
-            <DashCard title="Resource Allocation">
+            <DashCard title="Resource Allocation" maxHeight={250}>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {plan.dispatch.map((d, i) => (
                   <div
@@ -467,6 +470,34 @@ function AIDashboard({
                 ))}
               </div>
             </DashCard>
+
+            {/* LLM Dispatch Recommendation */}
+            {plan.recommendation && (
+              <DashCard title="Dispatch Recommendation" maxHeight={200}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  {plan.recommendation.split("\n").filter(Boolean).map((line, i) => {
+                    const bullet = line.replace(/^[-•]\s*/, "").trim();
+                    if (!bullet) return null;
+                    return (
+                      <div
+                        key={i}
+                        style={{
+                          display: "flex",
+                          alignItems: "flex-start",
+                          gap: 6,
+                          fontSize: 10,
+                          color: "rgba(255,255,255,0.6)",
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        <span style={{ color: "#6c63ff", flexShrink: 0, marginTop: 1 }}>▸</span>
+                        <span>{bullet}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </DashCard>
+            )}
           </>
         ) : null}
       </div>
