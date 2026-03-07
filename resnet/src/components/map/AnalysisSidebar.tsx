@@ -324,8 +324,31 @@ function AIDashboard({
   summaryLoading: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(false);
-  const [teamInventory, setTeamInventory] = useState<Record<string, number | null>>({});
-  const [supplyInventory, setSupplyInventory] = useState<Record<string, number | null>>({});
+  const [teamInventory, setTeamInventory] = useState<Record<string, number | null>>({
+    "infrastructure repair crew": 4,
+    "food distribution team": 6,
+    "shelter management team": 5,
+    "water purification unit": 3,
+    "mobile medical unit": 3,
+  });
+  const [supplyInventory, setSupplyInventory] = useState<Record<string, number | null>>({
+    "Portable Generators": 12,
+    "Heavy Tool Kits": 40,
+    "Tarps": 800,
+    "MREs": 5000,
+    "Water Bottles": 4000,
+    "Community Kitchen Kits": 6,
+    "Emergency Tarps": 600,
+    "Cots": 500,
+    "Blankets": 1500,
+    "Hygiene Kits": 800,
+    "Water Purification Tablets": 8000,
+    "Portable Latrines": 20,
+    "5-Gal Water Containers": 400,
+    "First-Aid Kits": 200,
+    "Trauma Kits": 50,
+    "Chronic-Care Med Packs": 100,
+  });
   const show = visible && (summaryLoading || !!plan);
 
   const totalAffected = plan?.dispatch.reduce((s, d) => s + d.est_affected, 0) ?? 0;
