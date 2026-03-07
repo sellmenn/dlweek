@@ -535,6 +535,10 @@ const Map = () => {
   const handlePostSelect = useCallback((post: Post) => {
     const key = `${post.lat},${post.lon},${post.caption}`;
     setSelectedPostKey(key);
+    const cid = String(post.cluster);
+    if (cid !== "-1") {
+      setFocusedCluster(cid);
+    }
     setFlyTarget([post.lat, post.lon]);
     setFlyZoom(14);
   }, []);
