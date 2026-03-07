@@ -606,22 +606,19 @@ def compute_dispatch(cluster_data):
 
 @app.route("/api/summarize", methods=["POST"])
 def api_summarize():
-    """Compute dispatch plan deterministically; use LLM only for situation overview."""
+    """Use OpenAI LLM to summarize crisis analysis data and provide actionable items."""
+    from dotenv import load_dotenv
+    load_dotenv()
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        return jsonify({"summary": "OpenAI API key not configured."}), 500
+
+    import openai
+
     data = __import__("flask").request.get_json(force=True)
-    cluster_data = data.get("clusters", [])
 
-    priorities, dispatch = compute_dispatch(cluster_data)
-
-    # Try to get LLM situation overview; fall back to deterministic summary
-    situation = None
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if api_key:
-            import openai
-            disaster_label = DISASTER_CONFIGS[ACTIVE_DISASTER]["label"]
-            prompt = f"""You are a crisis response analyst. Based on the following post-disaster data from {disaster_label}, write a 2-3 sentence situation overview. Be specific about which areas are worst hit and what resource needs dominate. Do not include recommendations — just describe the situation.
+    disaster_label = DISASTER_CONFIGS[ACTIVE_DISASTER]["label"]
+    prompt = f"""You are a crisis response analyst. Based on the following post-disaster analysis data from {disaster_label}, provide a concise situation report with actionable recommendations.
 
 Data:
 - Total posts analyzed: {data.get('totalPosts', 0)}

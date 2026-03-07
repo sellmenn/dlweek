@@ -272,17 +272,13 @@ const Map = () => {
       .finally(() => setDisasterLoading(false));
   };
 
-  // Fetch LLM summary when analysis completes
+  // Fetch dispatch plan when analysis completes
   useEffect(() => {
     if (phase !== "done" || analyzedPosts.length === 0) return;
     setSummaryLoading(true);
     setLlmSummary(null);
 
-    const sevCounts: Record<string, number> = {
-      severe: 0,
-      mild: 0,
-      little_or_none: 0,
-    };
+    const sevCounts: Record<string, number> = { severe: 0, mild: 0, little_or_none: 0 };
     for (const p of analyzedPosts) {
       sevCounts[p.severity_label] = (sevCounts[p.severity_label] ?? 0) + 1;
     }
