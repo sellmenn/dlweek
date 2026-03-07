@@ -1,4 +1,4 @@
-import { useMemo, useState, useRef } from "react";
+import { useMemo, useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import type { AnalyzedPost } from "../../types/post";
 import type { Cluster } from "../../types/cluster";
@@ -27,7 +27,6 @@ const CATEGORY_COLORS: Record<Category, string> = {
   sanitation_water: "#22d3ee",
   medication: "#a78bfa",
 };
-const SEV_ORDER = ["severe", "mild", "little_or_none"] as const;
 const SEV_COLORS: Record<string, string> = {
   severe: "#ef4444",
   mild: "#f59e0b",
@@ -40,7 +39,17 @@ const SEV_LABELS: Record<string, string> = {
 };
 
 // Scaling factor: fraction of city population estimated affected per unit of social media signal density
-const AFFECTED_ALPHA = 0.01;
+const AFFECTED_ALPHA = 0.1;
+
+// Real FEMA warehouse inventory for Hurricane Irma
+const FEMA_SUPPLY: { item: string; qty: number; category: Category }[] = [
+  { item: "Water (liters)", qty: 718370, category: "sanitation_water" },
+  { item: "Meals", qty: 250572, category: "food" },
+  { item: "Cots", qty: 4422, category: "shelter" },
+  { item: "Medical Kits", qty: 800, category: "medication" },
+  { item: "Tarps", qty: 13272, category: "shelter" },
+  { item: "Blue Roof Sheeting", qty: 15344, category: "infrastructure" },
+];
 
 const card: React.CSSProperties = {
   ...glassStyle,
@@ -58,16 +67,6 @@ function formatElapsed(startMs: number): string {
   return `${secs}s`;
 }
 
-function timeSpan(posts: AnalyzedPost[]): string {
-  if (posts.length < 2) return "—";
-  const timestamps = posts.map((p) => p.timestamp);
-  const diffSec = Math.max(...timestamps) - Math.min(...timestamps);
-  const days = Math.floor(diffSec / 86400);
-  const hours = Math.floor((diffSec % 86400) / 3600);
-  if (days > 0) return `${days}d ${hours}h`;
-  if (hours > 0) return `${hours}h`;
-  return "<1h";
-}
 
 function avgSeverityScore(posts: AnalyzedPost[]): number {
   const informative = posts.filter((p) => p.informative);
@@ -202,72 +201,6 @@ function StatWidget({
   );
 }
 
-const PRIORITY_COLORS: Record<string, string> = {
-  CRITICAL: "#ef4444",
-  HIGH: "#f59e0b",
-  MEDIUM: "#60a5fa",
-  LOW: "#22c55e",
-};
-
-const TIMELINE_COLORS: Record<string, string> = {
-  immediate: "#ef4444",
-  "within 6h": "#f59e0b",
-  "within 24h": "#60a5fa",
-  "within 48h": "#22c55e",
-};
-
-const TEAM_TYPES: [string, string][] = [
-  ["infrastructure repair crew", "Infrastructure Repair"],
-  ["food distribution team", "Food Distribution"],
-  ["shelter management team", "Shelter Management"],
-  ["water purification unit", "Water Purification"],
-  ["mobile medical unit", "Mobile Medical"],
-];
-
-const SUPPLY_SPECS: { category: Category; label: string; items: { name: string; ratio: number }[] }[] = [
-  {
-    category: "infrastructure", label: "Infrastructure",
-    items: [
-      { name: "Portable Generators", ratio: 0.005 },
-      { name: "Heavy Tool Kits", ratio: 0.02 },
-      { name: "Tarps", ratio: 0.5 },
-    ],
-  },
-  {
-    category: "food", label: "Food",
-    items: [
-      { name: "MREs", ratio: 3.0 },
-      { name: "Water Bottles", ratio: 2.0 },
-      { name: "Community Kitchen Kits", ratio: 0.002 },
-    ],
-  },
-  {
-    category: "shelter", label: "Shelter",
-    items: [
-      { name: "Emergency Tarps", ratio: 0.5 },
-      { name: "Cots", ratio: 0.3 },
-      { name: "Blankets", ratio: 1.0 },
-      { name: "Hygiene Kits", ratio: 0.5 },
-    ],
-  },
-  {
-    category: "sanitation_water", label: "Water & Sanitation",
-    items: [
-      { name: "Water Purification Tablets", ratio: 4.0 },
-      { name: "Portable Latrines", ratio: 0.01 },
-      { name: "5-Gal Water Containers", ratio: 0.2 },
-    ],
-  },
-  {
-    category: "medication", label: "Medication",
-    items: [
-      { name: "First-Aid Kits", ratio: 0.1 },
-      { name: "Trauma Kits", ratio: 0.02 },
-      { name: "Chronic-Care Med Packs", ratio: 0.05 },
-    ],
-  },
-];
-
 /** Dashboard card wrapper with consistent glassmorphism */
 function DashCard({
   title,
@@ -281,7 +214,7 @@ function DashCard({
   style?: React.CSSProperties;
 }) {
   return (
-    <div style={{ ...card, padding: 0, overflow: "hidden", ...extra }}>
+    <div style={{ ...card, padding: 0, overflow: maxHeight ? "hidden" : undefined, ...extra }}>
       <div
         style={{
           padding: "10px 14px 6px",
@@ -300,62 +233,123 @@ function DashCard({
   );
 }
 
-const inputStyle: React.CSSProperties = {
-  width: 56,
-  padding: "3px 6px",
-  fontSize: 11,
-  fontWeight: 600,
-  color: "white",
-  background: "rgba(255,255,255,0.08)",
-  border: "1px solid rgba(255,255,255,0.12)",
-  borderRadius: 4,
-  textAlign: "right",
-  outline: "none",
-};
-
-/** AI Dashboard — structured dispatch plan on the right side */
+/** AI Dashboard — context-aware situation summary on the right side */
 function AIDashboard({
   visible,
   plan,
   summaryLoading,
+  totalPosts,
+  globalSevCounts,
+  focusedCluster,
+  clusters,
+  postsByCluster,
+  clusterAvgScores,
 }: {
   visible: boolean;
   plan: DispatchPlan | null;
   summaryLoading: boolean;
+  totalPosts: number;
+  globalSevCounts: Record<string, number>;
+  focusedCluster: string | null;
+  clusters: Record<string, Cluster>;
+  postsByCluster: Record<string, AnalyzedPost[]>;
+  clusterAvgScores: Record<string, CategoryScores>;
 }) {
   const [collapsed, setCollapsed] = useState(false);
-  const [teamInventory, setTeamInventory] = useState<Record<string, number | null>>({
-    "infrastructure repair crew": 4,
-    "food distribution team": 6,
-    "shelter management team": 5,
-    "water purification unit": 3,
-    "mobile medical unit": 3,
-  });
-  const [supplyInventory, setSupplyInventory] = useState<Record<string, number | null>>({
-    "Portable Generators": 12,
-    "Heavy Tool Kits": 40,
-    "Tarps": 800,
-    "MREs": 5000,
-    "Water Bottles": 4000,
-    "Community Kitchen Kits": 6,
-    "Emergency Tarps": 600,
-    "Cots": 500,
-    "Blankets": 1500,
-    "Hygiene Kits": 800,
-    "Water Purification Tablets": 8000,
-    "Portable Latrines": 20,
-    "5-Gal Water Containers": 400,
-    "First-Aid Kits": 200,
-    "Trauma Kits": 50,
-    "Chronic-Care Med Packs": 100,
-  });
   const show = visible && (summaryLoading || !!plan);
 
-  const totalAffected = plan?.dispatch.reduce((s, d) => s + d.est_affected, 0) ?? 0;
-  const teamDemand: Record<string, number> = {};
-  if (plan) for (const d of plan.dispatch) teamDemand[d.teams] = (teamDemand[d.teams] ?? 0) + d.team_count;
-  const supplyDemand: Record<string, number> = {};
-  for (const spec of SUPPLY_SPECS) for (const item of spec.items) supplyDemand[item.name] = Math.max(1, Math.round(totalAffected * item.ratio));
+  // Per-cluster LLM summary cache
+  const [clusterSummaries, setClusterSummaries] = useState<Record<string, string>>({});
+  const [clusterSummaryLoading, setClusterSummaryLoading] = useState<string | null>(null);
+  const fetchingRef = useRef<Set<string>>(new Set());
+
+  const fetchClusterSummary = useCallback((cid: string) => {
+    if (clusterSummaries[cid] || fetchingRef.current.has(cid)) return;
+    const cluster = clusters[cid];
+    if (!cluster) return;
+    const posts = postsByCluster[cid] ?? [];
+    const avg = clusterAvgScores[cid] ?? {};
+    const sevCounts: Record<string, number> = { severe: 0, mild: 0, little_or_none: 0 };
+    for (const p of posts) sevCounts[p.severity_label] = (sevCounts[p.severity_label] ?? 0) + 1;
+
+    fetchingRef.current.add(cid);
+    setClusterSummaryLoading(cid);
+
+    fetch("/api/cluster-summary", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cluster: {
+          name: cluster.name,
+          severity: cluster.combined_severity ?? "unknown",
+          population: cluster.population ?? 0,
+          postCount: posts.length,
+          resourceScores: avg,
+          severityCounts: sevCounts,
+        },
+      }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.summary) setClusterSummaries((prev) => ({ ...prev, [cid]: d.summary }));
+      })
+      .catch(() => {})
+      .finally(() => {
+        fetchingRef.current.delete(cid);
+        setClusterSummaryLoading((prev) => (prev === cid ? null : prev));
+      });
+  }, [clusterSummaries, clusters, postsByCluster, clusterAvgScores]);
+
+  useEffect(() => {
+    if (focusedCluster && !clusterSummaries[focusedCluster]) {
+      fetchClusterSummary(focusedCluster);
+    }
+  }, [focusedCluster, clusterSummaries, fetchClusterSummary]);
+
+  // Compute demand per category from cluster resource scores × estimated affected
+  const supplyDemand = useMemo(() => {
+    // Aggregate supply by category
+    const supply: Record<Category, { items: { name: string; qty: number }[]; total: number }> = {
+      sanitation_water: { items: [], total: 0 },
+      food: { items: [], total: 0 },
+      shelter: { items: [], total: 0 },
+      medication: { items: [], total: 0 },
+      infrastructure: { items: [], total: 0 },
+    };
+    for (const s of FEMA_SUPPLY) {
+      supply[s.category].items.push({ name: s.item, qty: s.qty });
+      supply[s.category].total += s.qty;
+    }
+
+    // Compute demand: sum across clusters of (avg_score × est_affected)
+    // This gives a weighted demand signal per category
+    const demand: Record<Category, number> = {
+      sanitation_water: 0, food: 0, shelter: 0, medication: 0, infrastructure: 0,
+    };
+    let totalAffected = 0;
+    for (const [cid, posts] of Object.entries(postsByCluster)) {
+      const pop = clusters[cid]?.population ?? 0;
+      const affected = totalPosts > 0 ? pop * (posts.length / totalPosts) * AFFECTED_ALPHA : 0;
+      totalAffected += affected;
+      const avg = clusterAvgScores[cid];
+      if (!avg) continue;
+      for (const cat of CATEGORIES) {
+        demand[cat] += (avg[cat] ?? 0) * affected;
+      }
+    }
+
+    return CATEGORIES.map((cat) => {
+      const s = supply[cat];
+      const d = Math.round(demand[cat]);
+      const ratio = d > 0 ? s.total / d : s.total > 0 ? Infinity : 0;
+      return { category: cat, supply: s.total, supplyItems: s.items, demand: d, ratio };
+    }).sort((a, b) => a.ratio - b.ratio); // worst shortages first
+  }, [postsByCluster, clusters, clusterAvgScores, totalPosts]);
+
+  const isFocused = focusedCluster !== null;
+  const focusedData = focusedCluster ? clusters[focusedCluster] : null;
+  const focusedSummary = focusedCluster ? clusterSummaries[focusedCluster] : null;
+  const isFocusedLoading = clusterSummaryLoading === focusedCluster;
 
   return (
     <div
@@ -374,7 +368,7 @@ function AIDashboard({
         flexDirection: "column",
       }}
     >
-      {/* Header toggle */}
+      {/* Header */}
       <div style={{ ...card, padding: 0, overflow: "hidden", flexShrink: 0 }}>
         <button
           onClick={() => setCollapsed((c) => !c)}
@@ -390,24 +384,10 @@ function AIDashboard({
             color: "white",
           }}
         >
-          <span
-            style={{
-              fontSize: 10,
-              color: "rgba(255,255,255,0.3)",
-              textTransform: "uppercase",
-              letterSpacing: "0.15em",
-            }}
-          >
-            AI Dispatch Dashboard
+          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.15em" }}>
+            Situation Summary
           </span>
-          <span
-            style={{
-              fontSize: 14,
-              color: "rgba(255,255,255,0.3)",
-              transform: collapsed ? "rotate(-90deg)" : "rotate(0)",
-              transition: "transform 0.2s",
-            }}
-          >
+          <span style={{ fontSize: 14, color: "rgba(255,255,255,0.3)", transform: collapsed ? "rotate(-90deg)" : "rotate(0)", transition: "transform 0.2s" }}>
             ▼
           </span>
         </button>
@@ -428,257 +408,124 @@ function AIDashboard({
       >
         {summaryLoading ? (
           <div style={{ ...card, display: "flex", alignItems: "center", gap: 8, justifyContent: "center", padding: "24px 16px" }}>
-            <div
-              style={{
-                width: 14,
-                height: 14,
-                border: "2px solid rgba(255,255,255,0.15)",
-                borderTopColor: "#6c63ff",
-                borderRadius: "50%",
-                animation: "spin 0.8s linear infinite",
-              }}
-            />
-            <span style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>
-              Generating dispatch plan...
-            </span>
+            <div style={{ width: 14, height: 14, border: "2px solid rgba(255,255,255,0.15)", borderTopColor: "#6c63ff", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+            <span style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>Analyzing situation...</span>
           </div>
         ) : plan ? (
-          <>
-            {/* Situation Overview */}
-            <DashCard title="Situation Overview" maxHeight={120}>
-              <div style={{ fontSize: 11, lineHeight: 1.6, color: "rgba(255,255,255,0.7)" }}>
-                {plan.situation}
-              </div>
-            </DashCard>
-
-            {/* Priority Ranking */}
-            <DashCard title="Priority Ranking" maxHeight={180}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {plan.priorities.map((p, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontSize: 8,
-                        fontWeight: 700,
-                        padding: "2px 6px",
-                        borderRadius: 4,
-                        flexShrink: 0,
-                        background: `${PRIORITY_COLORS[p.level] ?? "#556"}20`,
-                        color: PRIORITY_COLORS[p.level] ?? "#aaa",
-                        textTransform: "uppercase",
-                        letterSpacing: "0.05em",
-                        minWidth: 52,
-                        textAlign: "center",
-                      }}
-                    >
-                      {p.level}
-                    </span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: "white" }}>
-                        {p.cluster}
-                      </span>
-                      <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginTop: 1 }}>
-                        Top need: {p.top_need}
-                      </div>
-                    </div>
+          isFocused && focusedData ? (
+            <>
+              {/* ── CLUSTER-FOCUSED VIEW ── */}
+              <DashCard title={`${focusedData.name} — AI Overview`}>
+                {isFocusedLoading ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0" }}>
+                    <div style={{ width: 12, height: 12, border: "2px solid rgba(255,255,255,0.15)", borderTopColor: "#6c63ff", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                    <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>Generating cluster overview...</span>
                   </div>
-                ))}
-              </div>
-            </DashCard>
-
-            {/* Dispatch Orders */}
-            <DashCard title="Resource Allocation" maxHeight={250}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {plan.dispatch.map((d, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      borderLeft: `2px solid ${TIMELINE_COLORS[d.timeline] ?? "#556"}`,
-                      paddingLeft: 10,
-                    }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: "white" }}>
-                          {d.cluster}
-                        </span>
-                        <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.6)" }}>
-                          {d.allocation_pct}%
-                        </span>
-                      </div>
-                      <span
-                        style={{
-                          fontSize: 8,
-                          fontWeight: 600,
-                          padding: "2px 6px",
-                          borderRadius: 4,
-                          background: `${TIMELINE_COLORS[d.timeline] ?? "#556"}20`,
-                          color: TIMELINE_COLORS[d.timeline] ?? "#aaa",
-                          textTransform: "uppercase",
-                        }}
-                      >
-                        {d.timeline}
-                      </span>
-                    </div>
-                    {/* Allocation bar */}
-                    <div
-                      style={{
-                        height: 3,
-                        borderRadius: 2,
-                        background: "rgba(255,255,255,0.06)",
-                        overflow: "hidden",
-                        marginBottom: 4,
-                      }}
-                    >
-                      <div
-                        style={{
-                          height: "100%",
-                          borderRadius: 2,
-                          width: `${d.allocation_pct}%`,
-                          background: TIMELINE_COLORS[d.timeline] ?? "#556",
-                          transition: "width 0.5s",
-                        }}
-                      />
-                    </div>
-                    <div style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", lineHeight: 1.5 }}>
-                      <div style={{ marginBottom: 2 }}>
-                        <span style={{ color: "rgba(255,255,255,0.25)", marginRight: 4 }}>DEPLOY</span>
-                        {(() => {
-                          const available = teamInventory[d.teams];
-                          const count = available != null
-                            ? Math.max(1, Math.round(available * d.allocation_pct / 100))
-                            : d.team_count;
-                          return `${count} ${d.teams}${count > 1 ? "s" : ""}`;
-                        })()}
-                        <span style={{ color: "rgba(255,255,255,0.2)", marginLeft: 4 }}>
-                          (~{d.est_affected.toLocaleString()} affected)
-                        </span>
-                      </div>
-                      <div>
-                        <span style={{ color: "rgba(255,255,255,0.25)", marginRight: 4 }}>SUPPLIES</span>
-                        {d.supplies}
-                      </div>
-                    </div>
+                ) : (
+                  <div style={{ fontSize: 11, lineHeight: 1.6, color: "rgba(255,255,255,0.7)" }}>
+                    {focusedSummary ?? "Loading..."}
                   </div>
-                ))}
-              </div>
-            </DashCard>
+                )}
+              </DashCard>
+            </>
+          ) : (
+            <>
+              {/* ── GLOBAL OVERVIEW ── */}
+              <DashCard title="Overview">
+                <div style={{ fontSize: 11, lineHeight: 1.6, color: "rgba(255,255,255,0.7)" }}>
+                  {plan.situation}
+                </div>
+              </DashCard>
 
-            {/* Resource Overview */}
-            <DashCard title="Resource Overview" maxHeight={320}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {/* Teams overview */}
-                <div>
-                  <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.1em" }}>Teams</div>
-                  {TEAM_TYPES.map(([key, label]) => {
-                    const demand = teamDemand[key] ?? 0;
-                    if (demand === 0) return null;
-                    const available = teamInventory[key];
-                    const shortage = available != null && demand > available;
-                    const pct = available != null && available > 0 ? Math.min(100, (demand / available) * 100) : 100;
+              {/* Severity Breakdown */}
+              <DashCard title="Severity Breakdown">
+                <div style={{ display: "flex", gap: 6 }}>
+                  {(["severe", "mild", "little_or_none"] as const).map((sev) => {
+                    const count = globalSevCounts[sev] ?? 0;
+                    const pct = totalPosts > 0 ? Math.round((count / totalPosts) * 100) : 0;
                     return (
-                      <div key={key} style={{ marginBottom: 4 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "rgba(255,255,255,0.5)", marginBottom: 2 }}>
-                          <span>{label}</span>
-                          <span style={{ color: shortage ? "#ef4444" : available != null ? "#22c55e" : "rgba(255,255,255,0.4)" }}>
-                            {demand}{available != null ? ` / ${available}` : ""}
+                      <div key={sev} style={{ flex: 1, textAlign: "center", padding: "6px 4px", borderRadius: 6, background: `${SEV_COLORS[sev]}10` }}>
+                        <div style={{ fontSize: 16, fontWeight: 700, color: SEV_COLORS[sev] }}>{count}</div>
+                        <div style={{ fontSize: 8, color: SEV_COLORS[sev], opacity: 0.7 }}>{SEV_LABELS[sev]}</div>
+                        <div style={{ fontSize: 8, color: "rgba(255,255,255,0.3)", marginTop: 2 }}>{pct}%</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </DashCard>
+
+              {/* Resource Allocation Overview */}
+              <DashCard title="Resource Allocation" maxHeight={220}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {plan.dispatch.map((d, i) => (
+                    <div key={i}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, marginBottom: 3 }}>
+                        <span style={{ color: "white", fontWeight: 600 }}>{d.cluster}</span>
+                        <span style={{ color: "rgba(255,255,255,0.5)" }}>{d.allocation_pct}%</span>
+                      </div>
+                      <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                        <div style={{ height: "100%", borderRadius: 2, width: `${d.allocation_pct}%`, background: "#6c63ff", transition: "width 0.3s" }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </DashCard>
+
+              {/* Supply vs Demand — real FEMA inventory */}
+              <DashCard title="FEMA Supply vs Demand">
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {supplyDemand.map(({ category, supply, supplyItems, demand, ratio }) => {
+                    const label = CATEGORY_LABELS[category];
+                    const color = CATEGORY_COLORS[category];
+                    const maxVal = Math.max(supply, demand, 1);
+                    const status = ratio >= 1 ? "Adequate" : ratio > 0.5 ? "Low" : "Inadequate";
+                    const statusColor = ratio >= 1 ? "#22c55e" : ratio > 0.5 ? "#f59e0b" : "#ef4444";
+                    return (
+                      <div key={category}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                          <span style={{ fontSize: 11, fontWeight: 600, color }}>{label}</span>
+                          <span style={{ fontSize: 9, fontWeight: 600, color: statusColor, textTransform: "uppercase", letterSpacing: "0.05em", padding: "2px 6px", borderRadius: 10, background: `${statusColor}18` }}>
+                            {status}
                           </span>
                         </div>
-                        <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
-                          <div style={{ height: "100%", borderRadius: 2, width: `${available != null ? pct : 100}%`, background: shortage ? "#ef4444" : available != null ? "#22c55e" : "rgba(255,255,255,0.15)", transition: "width 0.3s" }} />
+                        {/* Supply bar */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                          <span style={{ fontSize: 8, color: "rgba(255,255,255,0.35)", width: 36, flexShrink: 0 }}>Supply</span>
+                          <div style={{ flex: 1, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                            <div style={{ height: "100%", borderRadius: 2, width: `${(supply / maxVal) * 100}%`, background: color, opacity: 0.8 }} />
+                          </div>
+                          <span style={{ fontSize: 9, color: "rgba(255,255,255,0.5)", width: 52, textAlign: "right", flexShrink: 0 }}>{supply.toLocaleString()}</span>
+                        </div>
+                        {/* Demand bar */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ fontSize: 8, color: "rgba(255,255,255,0.35)", width: 36, flexShrink: 0 }}>Demand</span>
+                          <div style={{ flex: 1, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                            <div style={{ height: "100%", borderRadius: 2, width: `${(demand / maxVal) * 100}%`, background: "rgba(255,255,255,0.4)" }} />
+                          </div>
+                          <span style={{ fontSize: 9, color: "rgba(255,255,255,0.5)", width: 52, textAlign: "right", flexShrink: 0 }}>~{demand.toLocaleString()}</span>
+                        </div>
+                        {/* Inventory items */}
+                        <div style={{ marginTop: 3, paddingLeft: 42 }}>
+                          {supplyItems.map((si) => (
+                            <span key={si.name} style={{ fontSize: 8, color: "rgba(255,255,255,0.25)", marginRight: 8 }}>
+                              {si.name}: {si.qty.toLocaleString()}
+                            </span>
+                          ))}
                         </div>
                       </div>
                     );
                   })}
                 </div>
-                {/* Supplies overview */}
-                {SUPPLY_SPECS.map((spec) => (
-                  <div key={spec.category}>
-                    <div style={{ fontSize: 9, color: CATEGORY_COLORS[spec.category], marginBottom: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em" }}>{spec.label}</div>
-                    {spec.items.map((item) => {
-                      const demand = supplyDemand[item.name] ?? 0;
-                      const available = supplyInventory[item.name];
-                      const shortage = available != null && demand > available;
-                      const pct = available != null && available > 0 ? Math.min(100, (demand / available) * 100) : 100;
-                      return (
-                        <div key={item.name} style={{ marginBottom: 4 }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "rgba(255,255,255,0.5)", marginBottom: 2 }}>
-                            <span>{item.name}</span>
-                            <span style={{ color: shortage ? "#ef4444" : available != null ? "#22c55e" : "rgba(255,255,255,0.4)" }}>
-                              {demand.toLocaleString()}{available != null ? ` / ${available.toLocaleString()}` : ""}
-                            </span>
-                          </div>
-                          <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
-                            <div style={{ height: "100%", borderRadius: 2, width: `${available != null ? pct : 100}%`, background: shortage ? "#ef4444" : available != null ? "#22c55e" : "rgba(255,255,255,0.15)", transition: "width 0.3s" }} />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ))}
-              </div>
-            </DashCard>
+                <div style={{ fontSize: 8, color: "rgba(255,255,255,0.2)", marginTop: 8, textAlign: "center" }}>
+                  Supply: FEMA warehouse inventory · Demand: computed from social media analysis
+                </div>
+              </DashCard>
 
-            {/* Resource Inventory */}
-            <DashCard title="Resource Inventory" maxHeight={300}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {/* Teams */}
-                <div>
-                  <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.1em" }}>Teams</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                    {TEAM_TYPES.map(([key, label]) => (
-                      <div key={key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                        <span style={{ fontSize: 10, color: "rgba(255,255,255,0.5)" }}>{label}</span>
-                        <input
-                          type="number" min={0}
-                          placeholder={String(teamDemand[key] ?? 0)}
-                          value={teamInventory[key] ?? ""}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            setTeamInventory((prev) => ({ ...prev, [key]: v ? Math.max(0, parseInt(v, 10) || 0) : null }));
-                          }}
-                          style={inputStyle}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                {/* Supplies by category */}
-                {SUPPLY_SPECS.map((spec) => (
-                  <div key={spec.category}>
-                    <div style={{ fontSize: 9, color: CATEGORY_COLORS[spec.category], marginBottom: 6, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em" }}>{spec.label}</div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                      {spec.items.map((item) => (
-                        <div key={item.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.5)" }}>{item.name}</span>
-                          <input
-                            type="number" min={0}
-                            placeholder="—"
-                            value={supplyInventory[item.name] ?? ""}
-                            onChange={(e) => {
-                              const v = e.target.value;
-                              setSupplyInventory((prev) => ({ ...prev, [item.name]: v ? Math.max(0, parseInt(v, 10) || 0) : null }));
-                            }}
-                            style={inputStyle}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-                <div style={{ fontSize: 9, color: "rgba(255,255,255,0.25)" }}>
-                  Set available quantities; leave blank for unlimited
-                </div>
+              <div style={{ fontSize: 9, color: "rgba(255,255,255,0.2)", textAlign: "center", padding: "4px 0" }}>
+                Select a cluster for detailed breakdown
               </div>
-            </DashCard>
-          </>
+            </>
+          )
         ) : null}
       </div>
     </div>
@@ -790,7 +637,6 @@ export default function AnalysisWidgets({
   const focusedSev = focusedClusterData?.combined_severity ?? "";
   const focusedSevScore = avgSeverityScore(focusedPosts);
   const focusedElapsed = formatElapsed(analysisStartTime);
-  const focusedSpan = timeSpan(focusedPosts);
   const focusedPeople =
     totalPosts > 0 && focusedClusterData?.population
       ? Math.round(
@@ -1406,6 +1252,12 @@ export default function AnalysisWidgets({
         visible={phase === "done"}
         plan={dispatchPlan}
         summaryLoading={summaryLoading}
+        totalPosts={totalPosts}
+        globalSevCounts={globalSevCounts}
+        focusedCluster={focusedCluster}
+        clusters={clusters}
+        postsByCluster={postsByCluster}
+        clusterAvgScores={clusterAvgScores}
       />
     </>
   );

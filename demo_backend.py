@@ -95,36 +95,6 @@ def tweet_id_to_timestamp(tweet_id: int) -> float:
 # ── Per-disaster geographic configs ───────────────────────────────────────────
 
 DISASTER_CONFIGS = {
-    "hurricane_maria": {
-        "label": "Hurricane Maria",
-        "tsv": "hurricane_maria_final_data.tsv",
-        "image_dir": "hurricane_maria",
-        "map_center": [18.45, -66.07],
-        "map_zoom": 9,
-        "eps": 0.06,
-        "cluster_centers": [
-            (18.4500, -66.0700, "San Juan",      2200000, 0.22),
-            (18.0111, -66.6141, "Ponce",          160000,  0.14),
-            (18.2013, -67.1397, "Mayagüez",       90000,   0.12),
-            (18.4725, -66.7156, "Arecibo",        87000,   0.12),
-            (18.2341, -66.0485, "Caguas",         130000,  0.14),
-            (18.1496, -65.7994, "Humacao",        55000,   0.10),
-            (18.3358, -65.6602, "Fajardo",        35000,   0.08),
-            (18.1745, -66.9905, "San Germán",     33000,   0.08),
-        ],
-        "polygon": [
-            (18.515, -67.165), (18.510, -67.030), (18.490, -66.940), (18.500, -66.850),
-            (18.485, -66.750), (18.490, -66.600), (18.480, -66.450), (18.475, -66.300),
-            (18.470, -66.150), (18.465, -66.050), (18.455, -65.960), (18.445, -65.880),
-            (18.400, -65.790), (18.360, -65.640), (18.340, -65.590),
-            (18.260, -65.600), (18.160, -65.750), (18.120, -65.840),
-            (18.050, -65.900), (17.970, -66.050), (17.960, -66.200), (17.955, -66.400),
-            (17.980, -66.560), (17.990, -66.600), (17.970, -66.800), (17.960, -66.950),
-            (18.060, -67.100), (18.110, -67.160), (18.170, -67.200), (18.250, -67.190),
-            (18.340, -67.200), (18.400, -67.190), (18.460, -67.180),
-            (18.515, -67.165),
-        ],
-    },
     "hurricane_irma": {
         "label": "Hurricane Irma",
         "tsv": "hurricane_irma_final_data.tsv",
@@ -151,30 +121,9 @@ DISASTER_CONFIGS = {
             (29.90, -84.50), (30.10, -85.50), (30.40, -86.50), (30.75, -87.60),
         ],
     },
-    "mexico_earthquake": {
-        "label": "Mexico Earthquake",
-        "tsv": "mexico_earthquake_final_data.tsv",
-        "image_dir": "mexico_earthquake",
-        "map_center": [19.43, -99.13],
-        "map_zoom": 8,
-        "eps": 0.08,
-        "cluster_centers": [
-            (19.4326, -99.1332, "Mexico City",  9200000, 0.25),
-            (18.8500, -99.2000, "Cuernavaca",    366000, 0.14),
-            (19.0500, -98.2000, "Puebla",       1700000, 0.18),
-            (18.3400, -99.5100, "Iguala",        140000, 0.12),
-            (18.9200, -99.2300, "Jojutla",        58000, 0.10),
-            (19.2900, -99.6600, "Toluca",        900000, 0.15),
-        ],
-        "polygon": [
-            (20.20, -100.50), (20.20, -98.00), (19.80, -97.50), (19.20, -97.00),
-            (18.20, -97.50), (17.80, -98.50), (17.80, -99.50), (18.00, -100.50),
-            (18.50, -101.00), (19.50, -101.00), (20.20, -100.50),
-        ],
-    },
 }
 
-ACTIVE_DISASTER = "hurricane_maria"
+ACTIVE_DISASTER = "hurricane_irma"
 
 
 def point_in_polygon(lat, lon, polygon):
@@ -579,7 +528,7 @@ def compute_dispatch(cluster_data):
         sev = c.get("severity", "little_or_none")
         pop = c.get("population", 0)
         post_count = c.get("postCount", 0)
-        est_affected = pop * 0.01 if pop else post_count * 10
+        est_affected = pop * 0.1 if pop else post_count * 100
 
         # Top resource need
         top_cat = max(scores, key=scores.get) if scores else "infrastructure"
@@ -689,6 +638,61 @@ Write ONLY the 2-3 sentence overview, nothing else."""
     })
 
 
+@app.route("/api/cluster-summary", methods=["POST"])
+def api_cluster_summary():
+    """Generate an LLM situation summary for a single cluster."""
+    data = __import__("flask").request.get_json(force=True)
+    cluster = data.get("cluster", {})
+    name = cluster.get("name", "Unknown")
+    severity = cluster.get("severity", "unknown")
+    population = cluster.get("population", 0)
+    post_count = cluster.get("postCount", 0)
+    resource_scores = cluster.get("resourceScores", {})
+    sev_counts = cluster.get("severityCounts", {})
+
+    # Sort categories by score descending
+    sorted_cats = sorted(resource_scores.items(), key=lambda x: x[1], reverse=True)
+    top_needs = ", ".join(f"{cat} ({score:.2f})" for cat, score in sorted_cats[:3]) if sorted_cats else "unknown"
+
+    summary = None
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if api_key:
+            import openai
+            disaster_label = DISASTER_CONFIGS[ACTIVE_DISASTER]["label"]
+            prompt = f"""You are a crisis response analyst. Based on the following data for the {name} area during {disaster_label}, write a 2-3 sentence situation assessment for this specific area. Be concrete about the severity, dominant needs, and scale. Do not invent specific numbers that aren't provided.
+
+Area: {name}
+Combined severity: {severity}
+Reports from area: {post_count}
+Area population: {population}
+Severity breakdown: {json.dumps(sev_counts)}
+Aid need scores (0-1, higher = greater need): {json.dumps(dict(sorted_cats))}
+Top needs: {top_needs}
+
+Write ONLY the 2-3 sentence assessment, nothing else."""
+
+            client = openai.OpenAI(api_key=api_key)
+            resp = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=300,
+                temperature=0.3,
+            )
+            summary = resp.choices[0].message.content.strip()
+    except Exception:
+        pass
+
+    if not summary:
+        summary = f"{name} has {severity} severity with {post_count} reports analyzed."
+        if sorted_cats:
+            summary += f" Primary need: {sorted_cats[0][0].replace('_', ' ')}."
+
+    return jsonify({"summary": summary})
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -699,7 +703,7 @@ def main():
     parser.add_argument("--info-image-model", default="checkpoints/info_image.pt")
     parser.add_argument("--info-text-model", default="checkpoints/info_text.pt")
     parser.add_argument("--annotations-dir", default="CrisisMMD_v2.0/annotations")
-    parser.add_argument("--disaster", default="hurricane_maria", choices=list(DISASTER_CONFIGS.keys()))
+    parser.add_argument("--disaster", default="hurricane_irma", choices=list(DISASTER_CONFIGS.keys()))
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
 
