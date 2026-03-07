@@ -25,6 +25,14 @@ const ZOOM_THRESHOLD = 11;
 
 type Phase = "idle" | "predicting" | "animating" | "done";
 
+export interface DispatchPlan {
+  situation: string;
+  priorities: { cluster: string; level: string; reason: string }[];
+  dispatch: { cluster: string; teams: string; supplies: string; timeline: string }[];
+  conflicts: { resource: string; clusters: string[]; recommendation: string }[];
+  escalations: string[];
+}
+
 /** Convex hull via Graham scan — returns the true edge points in order. */
 function convexHull(points: [number, number][]): [number, number][] {
   if (points.length < 3) return points;
@@ -177,7 +185,7 @@ const Map = () => {
   const [flyZoom, setFlyZoom] = useState<number | undefined>(undefined);
   const [analyzedPosts, setAnalyzedPosts] = useState<AnalyzedPost[]>([]);
   const [analysisStartTime, setAnalysisStartTime] = useState<number>(0);
-  const [llmSummary, setLlmSummary] = useState("");
+  const [llmSummary, setLlmSummary] = useState<DispatchPlan | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [disasters, setDisasters] = useState<DisasterOption[]>([]);
   const [activeDisaster, setActiveDisaster] = useState("");
@@ -226,7 +234,7 @@ const Map = () => {
     setFocusedCluster(null);
     setFlyTarget(null);
     setAnalyzedPosts([]);
-    setLlmSummary("");
+    setLlmSummary(null);
     setSummaryLoading(false);
     allPostsRef.current = [];
     clustersRef.current = {};
@@ -270,7 +278,7 @@ const Map = () => {
   useEffect(() => {
     if (phase !== "done" || analyzedPosts.length === 0) return;
     setSummaryLoading(true);
-    setLlmSummary("");
+    setLlmSummary(null);
 
     const sevCounts: Record<string, number> = {
       severe: 0,
@@ -281,11 +289,31 @@ const Map = () => {
       sevCounts[p.severity_label] = (sevCounts[p.severity_label] ?? 0) + 1;
     }
 
-    const clusterData = Object.entries(clusters).map(([cid, c]) => ({
-      name: c.name,
-      postCount: c.count,
-      severity: c.combined_severity ?? "unknown",
-    }));
+    // Compute per-cluster average resource scores from analyzed posts
+    const clusterPostMap: Record<string, typeof analyzedPosts> = {};
+    for (const p of analyzedPosts) {
+      const cid = String(p.cluster);
+      if (cid === "-1") continue;
+      if (!clusterPostMap[cid]) clusterPostMap[cid] = [];
+      clusterPostMap[cid].push(p);
+    }
+
+    const clusterData = Object.entries(clusters).map(([cid, c]) => {
+      const posts = clusterPostMap[cid] ?? [];
+      const cats = ["infrastructure", "food", "shelter", "sanitation_water", "medication"];
+      const avgScores: Record<string, number> = {};
+      for (const cat of cats) {
+        const vals = posts.map((p) => p.scores[cat] ?? 0);
+        avgScores[cat] = vals.length ? +(vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2) : 0;
+      }
+      return {
+        name: c.name,
+        postCount: c.count,
+        severity: c.combined_severity ?? "unknown",
+        population: c.population ?? 0,
+        resourceScores: avgScores,
+      };
+    });
 
     fetch("/api/summarize", {
       method: "POST",
@@ -298,8 +326,14 @@ const Map = () => {
       }),
     })
       .then((r) => r.json())
-      .then((d) => setLlmSummary(d.summary ?? "No summary available."))
-      .catch(() => setLlmSummary("Failed to generate summary."))
+      .then((d) => {
+        if (d.structured) {
+          setLlmSummary(d.structured as DispatchPlan);
+        } else {
+          setLlmSummary(null);
+        }
+      })
+      .catch(() => setLlmSummary(null))
       .finally(() => setSummaryLoading(false));
   }, [phase, analyzedPosts, clusters]);
 
@@ -624,7 +658,7 @@ const Map = () => {
             onFocusCluster={handleFocusCluster}
             onPostSelect={handlePostSelect}
             analysisStartTime={analysisStartTime}
-            llmSummary={llmSummary}
+            dispatchPlan={llmSummary}
             summaryLoading={summaryLoading}
           />
         </div>

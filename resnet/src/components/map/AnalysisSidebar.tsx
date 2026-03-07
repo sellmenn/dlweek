@@ -4,6 +4,7 @@ import type { AnalyzedPost } from "../../types/post";
 import type { Cluster } from "../../types/cluster";
 import type { Category, CategoryScores } from "../widgets/inferenceWidgets";
 import { glassStyle } from "../widgets/glassCard";
+import type { DispatchPlan } from "./Map";
 
 const CATEGORIES: Category[] = [
   "infrastructure",
@@ -201,51 +202,61 @@ function StatWidget({
   );
 }
 
-/** Renders a summary string where **text** becomes a bold section header. */
-function FormattedSummary({ text }: { text: string }) {
-  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+const PRIORITY_COLORS: Record<string, string> = {
+  CRITICAL: "#ef4444",
+  HIGH: "#f59e0b",
+  MEDIUM: "#60a5fa",
+  LOW: "#22c55e",
+};
+
+const TIMELINE_COLORS: Record<string, string> = {
+  immediate: "#ef4444",
+  "within 6h": "#f59e0b",
+  "within 24h": "#60a5fa",
+  "within 48h": "#22c55e",
+};
+
+/** Dashboard card wrapper with consistent glassmorphism */
+function DashCard({
+  title,
+  children,
+  style: extra,
+}: {
+  title: string;
+  children: React.ReactNode;
+  style?: React.CSSProperties;
+}) {
   return (
-    <div style={{ fontSize: 12, lineHeight: 1.7, color: "rgba(255,255,255,0.7)" }}>
-      {parts.map((part, i) => {
-        const match = part.match(/^\*\*(.+)\*\*$/);
-        if (match) {
-          return (
-            <div
-              key={i}
-              style={{
-                fontSize: 13,
-                fontWeight: 700,
-                color: "rgba(255,255,255,0.95)",
-                marginTop: i === 0 ? 0 : 12,
-                marginBottom: 4,
-                letterSpacing: "0.03em",
-                textTransform: "uppercase",
-                borderBottom: "1px solid rgba(255,255,255,0.1)",
-                paddingBottom: 3,
-              }}
-            >
-              {match[1]}
-            </div>
-          );
-        }
-        return <span key={i} style={{ whiteSpace: "pre-wrap" }}>{part}</span>;
-      })}
+    <div style={{ ...card, padding: 0, overflow: "hidden", ...extra }}>
+      <div
+        style={{
+          padding: "10px 14px 6px",
+          fontSize: 9,
+          color: "rgba(255,255,255,0.3)",
+          textTransform: "uppercase",
+          letterSpacing: "0.15em",
+          borderBottom: "1px solid rgba(255,255,255,0.06)",
+        }}
+      >
+        {title}
+      </div>
+      <div style={{ padding: "8px 14px 12px" }}>{children}</div>
     </div>
   );
 }
 
-/** Collapsible AI Situation Report widget on the right side */
-function SummaryWidget({
+/** AI Dashboard — structured dispatch plan on the right side */
+function AIDashboard({
   visible,
-  llmSummary,
+  plan,
   summaryLoading,
 }: {
   visible: boolean;
-  llmSummary: string;
+  plan: DispatchPlan | null;
   summaryLoading: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(false);
-  const show = visible && (summaryLoading || !!llmSummary);
+  const show = visible && (summaryLoading || !!plan);
 
   return (
     <div
@@ -253,16 +264,19 @@ function SummaryWidget({
         position: "absolute",
         right: 16,
         top: 16,
-        width: 360,
+        width: 380,
+        bottom: 16,
         zIndex: 1000,
         opacity: show ? 1 : 0,
-        transform: show ? "translateY(0)" : "translateY(-12px)",
+        transform: show ? "translateX(0)" : "translateX(12px)",
         pointerEvents: show ? "auto" : "none",
         transition: "opacity 0.4s ease, transform 0.4s ease",
+        display: "flex",
+        flexDirection: "column",
       }}
     >
-      <div style={{ ...card, padding: 0, overflow: "hidden" }}>
-        {/* Header — always visible, click to toggle */}
+      {/* Header toggle */}
+      <div style={{ ...card, padding: 0, overflow: "hidden", flexShrink: 0 }}>
         <button
           onClick={() => setCollapsed((c) => !c)}
           style={{
@@ -285,7 +299,7 @@ function SummaryWidget({
               letterSpacing: "0.15em",
             }}
           >
-            AI Situation Report
+            AI Dispatch Dashboard
           </span>
           <span
             style={{
@@ -298,51 +312,180 @@ function SummaryWidget({
             ▼
           </span>
         </button>
+      </div>
 
-        {/* Body — collapsible */}
-        <div
-          style={{
-            maxHeight: collapsed ? 0 : 500,
-            overflow: "hidden",
-            transition: "max-height 0.3s ease",
-          }}
-        >
-          <div style={{ padding: "0 16px 14px" }}>
-            {summaryLoading ? (
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "12px 0",
-                }}
-              >
-                <div
-                  style={{
-                    width: 14,
-                    height: 14,
-                    border: "2px solid rgba(255,255,255,0.15)",
-                    borderTopColor: "#6c63ff",
-                    borderRadius: "50%",
-                    animation: "spin 0.8s linear infinite",
-                  }}
-                />
-                <span style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>
-                  Generating report...
-                </span>
-              </div>
-            ) : (
-              <div
-                style={{
-                  maxHeight: 400,
-                  overflowY: "auto",
-                }}
-              >
-                <FormattedSummary text={llmSummary} />
-              </div>
-            )}
+      {/* Body */}
+      <div
+        style={{
+          flex: 1,
+          overflow: collapsed ? "hidden" : "auto",
+          maxHeight: collapsed ? 0 : undefined,
+          transition: "max-height 0.3s ease",
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+          marginTop: 8,
+        }}
+      >
+        {summaryLoading ? (
+          <div style={{ ...card, display: "flex", alignItems: "center", gap: 8, justifyContent: "center", padding: "24px 16px" }}>
+            <div
+              style={{
+                width: 14,
+                height: 14,
+                border: "2px solid rgba(255,255,255,0.15)",
+                borderTopColor: "#6c63ff",
+                borderRadius: "50%",
+                animation: "spin 0.8s linear infinite",
+              }}
+            />
+            <span style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>
+              Generating dispatch plan...
+            </span>
           </div>
-        </div>
+        ) : plan ? (
+          <>
+            {/* Situation Overview */}
+            <DashCard title="Situation Overview">
+              <div style={{ fontSize: 11, lineHeight: 1.6, color: "rgba(255,255,255,0.7)" }}>
+                {plan.situation}
+              </div>
+            </DashCard>
+
+            {/* Priority Ranking */}
+            <DashCard title="Priority Ranking">
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {plan.priorities.map((p, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: 8,
+                        fontWeight: 700,
+                        padding: "2px 6px",
+                        borderRadius: 4,
+                        flexShrink: 0,
+                        background: `${PRIORITY_COLORS[p.level] ?? "#556"}20`,
+                        color: PRIORITY_COLORS[p.level] ?? "#aaa",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.05em",
+                        minWidth: 52,
+                        textAlign: "center",
+                      }}
+                    >
+                      {p.level}
+                    </span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: "white" }}>
+                        {p.cluster}
+                      </div>
+                      <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginTop: 1 }}>
+                        {p.reason}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </DashCard>
+
+            {/* Dispatch Orders */}
+            <DashCard title="Dispatch Orders">
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {plan.dispatch.map((d, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      borderLeft: `2px solid ${TIMELINE_COLORS[d.timeline] ?? "#556"}`,
+                      paddingLeft: 10,
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: "white" }}>
+                        {d.cluster}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 8,
+                          fontWeight: 600,
+                          padding: "2px 6px",
+                          borderRadius: 4,
+                          background: `${TIMELINE_COLORS[d.timeline] ?? "#556"}20`,
+                          color: TIMELINE_COLORS[d.timeline] ?? "#aaa",
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        {d.timeline}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", lineHeight: 1.5 }}>
+                      <div style={{ marginBottom: 2 }}>
+                        <span style={{ color: "rgba(255,255,255,0.25)", marginRight: 4 }}>TEAMS</span>
+                        {d.teams}
+                      </div>
+                      <div>
+                        <span style={{ color: "rgba(255,255,255,0.25)", marginRight: 4 }}>SUPPLIES</span>
+                        {d.supplies}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </DashCard>
+
+            {/* Resource Conflicts */}
+            {plan.conflicts.length > 0 && (
+              <DashCard title="Resource Conflicts">
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {plan.conflicts.map((c, i) => (
+                    <div key={i}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                        <span style={{ fontSize: 10, fontWeight: 600, color: "#f59e0b" }}>
+                          {c.resource}
+                        </span>
+                        <span style={{ fontSize: 9, color: "rgba(255,255,255,0.3)" }}>
+                          {c.clusters.join(" vs ")}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", lineHeight: 1.5 }}>
+                        {c.recommendation}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </DashCard>
+            )}
+
+            {/* Escalation Triggers */}
+            {plan.escalations.length > 0 && (
+              <DashCard title="Escalation Triggers">
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {plan.escalations.map((e, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        display: "flex",
+                        alignItems: "flex-start",
+                        gap: 6,
+                        fontSize: 10,
+                        color: "rgba(255,255,255,0.5)",
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      <span style={{ color: "#ef4444", flexShrink: 0, marginTop: 1 }}>!</span>
+                      {e}
+                    </div>
+                  ))}
+                </div>
+              </DashCard>
+            )}
+          </>
+        ) : null}
       </div>
     </div>
   );
@@ -357,7 +500,7 @@ interface Props {
   onFocusCluster: (cid: string | null) => void;
   onPostSelect?: (post: AnalyzedPost) => void;
   analysisStartTime: number;
-  llmSummary: string;
+  dispatchPlan: DispatchPlan | null;
   summaryLoading: boolean;
 }
 
@@ -370,7 +513,7 @@ export default function AnalysisWidgets({
   onFocusCluster,
   onPostSelect,
   analysisStartTime,
-  llmSummary,
+  dispatchPlan,
   summaryLoading,
 }: Props) {
   const visible =
@@ -1064,10 +1207,10 @@ export default function AnalysisWidgets({
         </div>
       </div>
 
-      {/* ════════════ AI SUMMARY (right side) ════════════ */}
-      <SummaryWidget
+      {/* ════════════ AI DASHBOARD (right side) ════════════ */}
+      <AIDashboard
         visible={phase === "done"}
-        llmSummary={llmSummary}
+        plan={dispatchPlan}
         summaryLoading={summaryLoading}
       />
     </>

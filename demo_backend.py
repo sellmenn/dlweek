@@ -520,36 +520,71 @@ def api_summarize():
     data = __import__("flask").request.get_json(force=True)
 
     disaster_label = DISASTER_CONFIGS[ACTIVE_DISASTER]["label"]
-    prompt = f"""You are a crisis response analyst. Based on the following post-disaster analysis data from {disaster_label}, provide a concise situation report with actionable recommendations.
+    prompt = f"""You are a crisis response dispatch coordinator. Based on the following cluster analysis data from social media posts during {disaster_label}, produce a concrete, actionable dispatch plan.
 
-Data:
+## Cluster Data
 - Total posts analyzed: {data.get('totalPosts', 0)}
 - Number of clusters: {data.get('clusterCount', 0)}
 - Severity distribution: {json.dumps(data.get('severityDistribution', {}))}
 - Cluster details: {json.dumps(data.get('clusters', []))}
 
-Write a brief situation report (3-5 sentences) followed by 3-5 actionable bullet points. Focus on which areas need the most urgent attention, what types of aid are most needed, and priority recommendations.
+## Your Task
 
-Example output:
-**Situation Report**
-Analysis of 500 social media posts reveals significant damage concentration in the San Juan metropolitan area, with severe infrastructure and water/sanitation needs. Three of eight identified clusters show severe conditions requiring immediate intervention.
+Return a JSON object with exactly this structure (no markdown, no code fences, just raw JSON):
 
-**Priority Actions**
-- Deploy emergency water purification units to Ponce cluster (highest sanitation_water score at 78%)
-- Prioritize infrastructure repair crews for San Juan area (65% of severe-rated posts)
-- Establish mobile medical stations in Humacao region (medication need score 72%)
-- Coordinate food distribution to Mayaguez cluster (food need score 68%)"""
+{{
+  "situation": "2-3 sentence overview of the crisis situation based on the data",
+  "priorities": [
+    {{
+      "cluster": "cluster name",
+      "level": "CRITICAL | HIGH | MEDIUM | LOW",
+      "reason": "one sentence justification"
+    }}
+  ],
+  "dispatch": [
+    {{
+      "cluster": "cluster name",
+      "teams": "what personnel/teams to send (e.g. 2 search-and-rescue teams, 1 medical unit)",
+      "supplies": "specific resources to load (e.g. 500 water purification tablets, 200 tarps)",
+      "timeline": "immediate | within 6h | within 24h | within 48h"
+    }}
+  ],
+  "conflicts": [
+    {{
+      "resource": "the scarce resource type",
+      "clusters": ["cluster A", "cluster B"],
+      "recommendation": "how to split the resource and why"
+    }}
+  ],
+  "escalations": [
+    "specific condition that should trigger re-assessment (e.g. If shelter demand in X exceeds 0.7, redirect tarps from Y)"
+  ]
+}}
+
+Be specific and quantitative. Ground every recommendation in the data provided. Return ONLY valid JSON."""
 
     try:
         client = openai.OpenAI(api_key=api_key)
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=600,
+            max_tokens=1500,
             temperature=0.3,
         )
-        summary = response.choices[0].message.content
-        return jsonify({"summary": summary})
+        raw = response.choices[0].message.content.strip()
+        # Strip markdown code fences if present
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+            if raw.endswith("```"):
+                raw = raw[:-3].strip()
+        try:
+            structured = json.loads(raw)
+        except json.JSONDecodeError:
+            structured = None
+        if structured:
+            return jsonify({"structured": structured})
+        else:
+            return jsonify({"structured": None, "summary": raw})
     except Exception as e:
         return jsonify({"summary": f"Failed to generate summary: {str(e)}"}), 500
 
