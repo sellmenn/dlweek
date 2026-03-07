@@ -382,11 +382,16 @@ function AIDashboard({
                       {p.level}
                     </span>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: "white" }}>
-                        {p.cluster}
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: "white" }}>
+                          {p.cluster}
+                        </span>
+                        <span style={{ fontSize: 9, color: "rgba(255,255,255,0.25)" }}>
+                          {Math.round(p.urgency * 100)}%
+                        </span>
                       </div>
                       <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginTop: 1 }}>
-                        {p.reason}
+                        Top need: {p.top_need}
                       </div>
                     </div>
                   </div>
@@ -395,7 +400,7 @@ function AIDashboard({
             </DashCard>
 
             {/* Dispatch Orders */}
-            <DashCard title="Dispatch Orders">
+            <DashCard title="Resource Allocation">
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {plan.dispatch.map((d, i) => (
                   <div
@@ -406,9 +411,14 @@ function AIDashboard({
                     }}
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: "white" }}>
-                        {d.cluster}
-                      </span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: "white" }}>
+                          {d.cluster}
+                        </span>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.6)" }}>
+                          {d.allocation_pct}%
+                        </span>
+                      </div>
                       <span
                         style={{
                           fontSize: 8,
@@ -423,9 +433,29 @@ function AIDashboard({
                         {d.timeline}
                       </span>
                     </div>
+                    {/* Allocation bar */}
+                    <div
+                      style={{
+                        height: 3,
+                        borderRadius: 2,
+                        background: "rgba(255,255,255,0.06)",
+                        overflow: "hidden",
+                        marginBottom: 4,
+                      }}
+                    >
+                      <div
+                        style={{
+                          height: "100%",
+                          borderRadius: 2,
+                          width: `${d.allocation_pct}%`,
+                          background: TIMELINE_COLORS[d.timeline] ?? "#556",
+                          transition: "width 0.5s",
+                        }}
+                      />
+                    </div>
                     <div style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", lineHeight: 1.5 }}>
                       <div style={{ marginBottom: 2 }}>
-                        <span style={{ color: "rgba(255,255,255,0.25)", marginRight: 4 }}>TEAMS</span>
+                        <span style={{ color: "rgba(255,255,255,0.25)", marginRight: 4 }}>DEPLOY</span>
                         {d.teams}
                       </div>
                       <div>
@@ -437,53 +467,6 @@ function AIDashboard({
                 ))}
               </div>
             </DashCard>
-
-            {/* Resource Conflicts */}
-            {plan.conflicts.length > 0 && (
-              <DashCard title="Resource Conflicts">
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {plan.conflicts.map((c, i) => (
-                    <div key={i}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
-                        <span style={{ fontSize: 10, fontWeight: 600, color: "#f59e0b" }}>
-                          {c.resource}
-                        </span>
-                        <span style={{ fontSize: 9, color: "rgba(255,255,255,0.3)" }}>
-                          {c.clusters.join(" vs ")}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", lineHeight: 1.5 }}>
-                        {c.recommendation}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </DashCard>
-            )}
-
-            {/* Escalation Triggers */}
-            {plan.escalations.length > 0 && (
-              <DashCard title="Escalation Triggers">
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {plan.escalations.map((e, i) => (
-                    <div
-                      key={i}
-                      style={{
-                        display: "flex",
-                        alignItems: "flex-start",
-                        gap: 6,
-                        fontSize: 10,
-                        color: "rgba(255,255,255,0.5)",
-                        lineHeight: 1.5,
-                      }}
-                    >
-                      <span style={{ color: "#ef4444", flexShrink: 0, marginTop: 1 }}>!</span>
-                      {e}
-                    </div>
-                  ))}
-                </div>
-              </DashCard>
-            )}
           </>
         ) : null}
       </div>

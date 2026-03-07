@@ -182,6 +182,18 @@ $$A_k = P_k \cdot \frac{n_k}{N} \cdot \alpha$$
 
 where $P_k$ is the population of cluster $k$'s nearest city, $n_k$ is the number of posts in cluster $k$, $N$ is the total number of posts, and $\alpha = 0.01$ is a scaling factor representing the estimated fraction of a city's population affected per unit of social media signal density. The global estimate is $\sum_k A_k$.
 
+**Dispatch Urgency Score:**
+
+$$U_k = 0.6 \cdot S_k + 0.4 \cdot \max_c(\hat{y}_{kc})$$
+
+where $S_k$ is the cluster's weighted severity and $\max_c(\hat{y}_{kc})$ is the highest resource score across all categories. Priority level: CRITICAL ($U_k \geq 0.5$), HIGH ($0.3 \leq U_k < 0.5$), MEDIUM ($0.15 \leq U_k < 0.3$), LOW ($U_k < 0.15$).
+
+**Resource Allocation Proportion:**
+
+$$\text{alloc}_k = \frac{A_k \cdot U_k}{\sum_j A_j \cdot U_j}$$
+
+Each cluster receives a share of available resources proportional to its demand weight (estimated affected population $\times$ urgency).
+
 **Validation Metric — Mean Absolute Error (MAE):**
 
 $$\text{MAE} = \frac{1}{5} \sum_{c=1}^{5} \frac{1}{N} \sum_{i=1}^{N} |y_{ic} - \hat{y}_{ic}|$$
@@ -227,11 +239,12 @@ Activates when zoomed into a cluster or clicking a cluster row:
 - **Aid Needed** — Ranked bar chart of the 5 resource categories (Infrastructure, Food, Shelter, Water & Sanitation, Medication) with percentage scores and colored progress bars.
 - **Post List** — Scrollable list of all posts in the cluster, sorted by severity. Each post shows a thumbnail, date, informativeness badge (green "INFORMATIVE" or dimmed "NOT INFORMATIVE"), caption, top resource category, and score. Clicking a post flies the map to that marker and opens its popup.
 
-### Right Sidebar — AI Situation Report
+### Right Sidebar — AI Dispatch Dashboard
 
-- **Collapsible panel** — Appears after analysis completes.
-- **LLM-generated summary** — Sends cluster-level resource scores and severity data to GPT, which returns a natural-language situation analysis with prioritized recommendations and actionable insights.
-- **Loading spinner** — Shows while the summary is being generated.
+- **Collapsible panel** — Appears after analysis completes, scrollable with multiple grid cards.
+- **Situation Overview** — LLM-generated 2-3 sentence summary of the crisis situation (the only part produced by GPT; everything else is deterministic).
+- **Priority Ranking** — Clusters ranked by computed urgency score. Each row shows a color-coded priority badge (CRITICAL / HIGH / MEDIUM / LOW), urgency percentage, and top resource need. Urgency is calculated as `0.6 × weighted_severity + 0.4 × max(resource_scores)`.
+- **Resource Allocation** — Per-cluster dispatch orders with proportional allocation percentages, deployment timelines (immediate / within 6h / 24h / 48h), recommended team types, and supply lists. Allocation is computed as `demand_weight / total_demand`, where `demand_weight = estimated_affected × urgency`. Each entry includes a visual allocation bar and is color-coded by timeline urgency.
 
 ### Real-Time Streaming
 

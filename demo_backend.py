@@ -506,87 +506,153 @@ def api_predict():
     })
 
 
+RESOURCE_TEAM_MAP = {
+    "infrastructure": "infrastructure repair crew",
+    "food": "food distribution team",
+    "shelter": "shelter management team",
+    "sanitation_water": "water purification unit",
+    "medication": "mobile medical unit",
+}
+
+RESOURCE_SUPPLY_MAP = {
+    "infrastructure": "portable generators, heavy tools, tarps",
+    "food": "MREs, community kitchen kit, water bottles",
+    "shelter": "emergency tarps, cots, blankets, hygiene kits",
+    "sanitation_water": "water purification tablets, portable latrines, water containers",
+    "medication": "trauma kits, chronic-care medication, first-aid supplies",
+}
+
+RESOURCE_LABELS = {
+    "infrastructure": "Infrastructure",
+    "food": "Food",
+    "shelter": "Shelter",
+    "sanitation_water": "Water & Sanitation",
+    "medication": "Medication",
+}
+
+
+def compute_dispatch(cluster_data):
+    """
+    Deterministically compute priority, timeline, and resource allocation
+    from cluster scores.
+
+    urgency = 0.6 * weighted_severity + 0.4 * max(resource_scores)
+    allocation = demand_weight / sum(demand_weights)
+    demand_weight = estimated_affected * urgency
+    """
+    SEVERITY_WEIGHTS = {"severe": 1.0, "mild": 0.3, "little_or_none": 0.1}
+
+    enriched = []
+    for c in cluster_data:
+        scores = c.get("resourceScores", {})
+        sev = c.get("severity", "little_or_none")
+        sev_val = SEVERITY_WEIGHTS.get(sev, 0.1)
+        max_score = max(scores.values()) if scores else 0
+        urgency = 0.6 * sev_val + 0.4 * max_score
+        pop = c.get("population", 0)
+        post_count = c.get("postCount", 0)
+        est_affected = pop * 0.01 if pop else post_count * 10
+        demand_weight = est_affected * urgency
+
+        # Top resource need
+        top_cat = max(scores, key=scores.get) if scores else "infrastructure"
+
+        enriched.append({
+            **c,
+            "urgency": urgency,
+            "demand_weight": demand_weight,
+            "top_category": top_cat,
+            "est_affected": est_affected,
+        })
+
+    # Sort by urgency descending
+    enriched.sort(key=lambda x: x["urgency"], reverse=True)
+
+    total_demand = sum(e["demand_weight"] for e in enriched) or 1
+
+    priorities = []
+    dispatch = []
+    for e in enriched:
+        u = e["urgency"]
+        if u >= 0.5:
+            level, timeline = "CRITICAL", "immediate"
+        elif u >= 0.3:
+            level, timeline = "HIGH", "within 6h"
+        elif u >= 0.15:
+            level, timeline = "MEDIUM", "within 24h"
+        else:
+            level, timeline = "LOW", "within 48h"
+
+        alloc_pct = round(e["demand_weight"] / total_demand * 100)
+        top = e["top_category"]
+
+        priorities.append({
+            "cluster": e["name"],
+            "level": level,
+            "urgency": round(u, 3),
+            "top_need": RESOURCE_LABELS.get(top, top),
+        })
+
+        dispatch.append({
+            "cluster": e["name"],
+            "teams": RESOURCE_TEAM_MAP.get(top, "general response team"),
+            "supplies": RESOURCE_SUPPLY_MAP.get(top, "general emergency supplies"),
+            "timeline": timeline,
+            "allocation_pct": alloc_pct,
+        })
+
+    return priorities, dispatch
+
+
 @app.route("/api/summarize", methods=["POST"])
 def api_summarize():
-    """Use OpenAI LLM to summarize crisis analysis data and provide actionable items."""
-    from dotenv import load_dotenv
-    load_dotenv()
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        return jsonify({"summary": "OpenAI API key not configured."}), 500
-
-    import openai
-
+    """Compute dispatch plan deterministically; use LLM only for situation overview."""
     data = __import__("flask").request.get_json(force=True)
+    cluster_data = data.get("clusters", [])
 
-    disaster_label = DISASTER_CONFIGS[ACTIVE_DISASTER]["label"]
-    prompt = f"""You are a crisis response dispatch coordinator. Based on the following cluster analysis data from social media posts during {disaster_label}, produce a concrete, actionable dispatch plan.
+    priorities, dispatch = compute_dispatch(cluster_data)
 
-## Cluster Data
-- Total posts analyzed: {data.get('totalPosts', 0)}
-- Number of clusters: {data.get('clusterCount', 0)}
-- Severity distribution: {json.dumps(data.get('severityDistribution', {}))}
-- Cluster details: {json.dumps(data.get('clusters', []))}
-
-## Your Task
-
-Return a JSON object with exactly this structure (no markdown, no code fences, just raw JSON):
-
-{{
-  "situation": "2-3 sentence overview of the crisis situation based on the data",
-  "priorities": [
-    {{
-      "cluster": "cluster name",
-      "level": "CRITICAL | HIGH | MEDIUM | LOW",
-      "reason": "one sentence justification"
-    }}
-  ],
-  "dispatch": [
-    {{
-      "cluster": "cluster name",
-      "teams": "what personnel/teams to send (e.g. 2 search-and-rescue teams, 1 medical unit)",
-      "supplies": "specific resources to load (e.g. 500 water purification tablets, 200 tarps)",
-      "timeline": "immediate | within 6h | within 24h | within 48h"
-    }}
-  ],
-  "conflicts": [
-    {{
-      "resource": "the scarce resource type",
-      "clusters": ["cluster A", "cluster B"],
-      "recommendation": "how to split the resource and why"
-    }}
-  ],
-  "escalations": [
-    "specific condition that should trigger re-assessment (e.g. If shelter demand in X exceeds 0.7, redirect tarps from Y)"
-  ]
-}}
-
-Be specific and quantitative. Ground every recommendation in the data provided. Return ONLY valid JSON."""
-
+    # Try to get LLM situation overview; fall back to deterministic summary
+    situation = None
     try:
-        client = openai.OpenAI(api_key=api_key)
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=1500,
-            temperature=0.3,
-        )
-        raw = response.choices[0].message.content.strip()
-        # Strip markdown code fences if present
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
-            if raw.endswith("```"):
-                raw = raw[:-3].strip()
-        try:
-            structured = json.loads(raw)
-        except json.JSONDecodeError:
-            structured = None
-        if structured:
-            return jsonify({"structured": structured})
-        else:
-            return jsonify({"structured": None, "summary": raw})
-    except Exception as e:
-        return jsonify({"summary": f"Failed to generate summary: {str(e)}"}), 500
+        from dotenv import load_dotenv
+        load_dotenv()
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if api_key:
+            import openai
+            disaster_label = DISASTER_CONFIGS[ACTIVE_DISASTER]["label"]
+            prompt = f"""You are a crisis response analyst. Based on the following post-disaster data from {disaster_label}, write a 2-3 sentence situation overview. Be specific about which areas are worst hit and what resource needs dominate. Do not include recommendations — just describe the situation.
+
+Data:
+- Total posts analyzed: {data.get('totalPosts', 0)}
+- Clusters (sorted by urgency): {json.dumps(priorities)}
+
+Return ONLY the 2-3 sentence overview, no headers or formatting."""
+
+            client = openai.OpenAI(api_key=api_key)
+            resp = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=200,
+                temperature=0.3,
+            )
+            situation = resp.choices[0].message.content.strip()
+    except Exception:
+        pass
+
+    if not situation:
+        top = priorities[0] if priorities else None
+        situation = f"Analysis of {data.get('totalPosts', 0)} social media posts identified {len(priorities)} geographic clusters."
+        if top:
+            situation += f" {top['cluster']} is the highest-priority area ({top['level']}) with primary need in {top['top_need']}."
+
+    return jsonify({
+        "structured": {
+            "situation": situation,
+            "priorities": priorities,
+            "dispatch": dispatch,
+        }
+    })
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
